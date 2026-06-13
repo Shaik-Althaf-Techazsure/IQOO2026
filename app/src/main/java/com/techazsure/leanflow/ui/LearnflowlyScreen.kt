@@ -28,6 +28,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.LifecycleOwner
+import com.techazsure.leanflow.CameraFlowEngine
+import androidx.camera.view.PreviewView
+import androidx.compose.runtime.LaunchedEffect
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -52,7 +61,7 @@ fun LearnflowlyScreenPreview() {
 }
 
 @Composable
-fun LearnflowlyScreen() {
+fun LearnflowlyScreen(cameraEngine: CameraFlowEngine? = null) {
     var interactionState by remember { mutableStateOf(InteractionState.IDLE) }
     val coroutineScope = rememberCoroutineScope()
 
@@ -93,7 +102,10 @@ fun LearnflowlyScreen() {
 
         // 5. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
-            VideoOverlay(onClose = { interactionState = InteractionState.IDLE })
+            VideoOverlay(
+                cameraEngine = cameraEngine,
+                onClose = { interactionState = InteractionState.IDLE }
+            )
         }
     }
 }
@@ -344,35 +356,76 @@ fun VoiceDot(delayMillis: Int) {
 }
 
 @Composable
-fun VideoOverlay(onClose: () -> Unit) {
+fun VideoOverlay(cameraEngine: CameraFlowEngine?, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var hasCameraPermission by remember { mutableStateOf(false) }
+
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasCameraPermission = isGranted
+    }
+
+    LaunchedEffect(Unit) {
+        launcher.launch(android.Manifest.permission.CAMERA)
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.9f))
-            .padding(24.dp),
+            .background(Color.Black.copy(alpha = 0.9f)),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.Videocam,
-                contentDescription = "Video Mode",
-                tint = PrimaryContainer,
-                modifier = Modifier.size(80.dp)
+        if (hasCameraPermission && cameraEngine != null) {
+            AndroidView(
+                factory = { ctx ->
+                    PreviewView(ctx).apply {
+                        cameraEngine.startCameraPreview(lifecycleOwner, this)
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
             )
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "VIDEO MODE",
-                color = Color.White,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
-            )
-            Text(
-                text = "Streaming visual context to Learnflowly",
-                color = Color.White.copy(alpha = 0.6f),
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            Spacer(modifier = Modifier.height(48.dp))
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp)
+        ) {
+            Spacer(modifier = Modifier.weight(1f))
+            if (!hasCameraPermission) {
+                Icon(
+                    imageVector = Icons.Default.Videocam,
+                    contentDescription = "Video Mode",
+                    tint = PrimaryContainer,
+                    modifier = Modifier.size(80.dp)
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = "VIDEO MODE",
+                    color = Color.White,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    text = "Camera permission required",
+                    color = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            } else {
+                Text(
+                    text = "LEARNFLOW VIDEO FEED",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+            Spacer(modifier = Modifier.weight(1f))
             Button(
                 onClick = onClose,
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))

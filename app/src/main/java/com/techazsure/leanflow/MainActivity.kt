@@ -21,12 +21,14 @@ import com.techazsure.leanflow.ui.LearnflowlyScreen
 class MainActivity : ComponentActivity() {
 
     private lateinit var aiEngine: LearnFlowEngine
+    private lateinit var cameraEngine: CameraFlowEngine
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         aiEngine = LearnFlowEngine(applicationContext)
+        cameraEngine = CameraFlowEngine(applicationContext)
 
         lifecycleScope.launch {
             val sampleSubject = "EEE_Induction_Motors"
@@ -48,9 +50,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LearnflowlyScreen()
+                    LearnflowlyScreen(cameraEngine)
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraEngine.shutdownExecutor()
     }
 }
