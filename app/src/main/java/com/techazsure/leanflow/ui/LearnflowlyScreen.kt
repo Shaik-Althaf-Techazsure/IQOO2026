@@ -9,6 +9,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -22,6 +25,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -44,12 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import com.techazsure.leanflow.CameraFlowEngine
-import com.techazsure.leanflow.LearnFlowEngine
-import com.techazsure.leanflow.BrainEngine
 import com.techazsure.leanflow.SpeechToTextEngine
-import androidx.camera.view.PreviewView
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.time.Duration.Companion.milliseconds
@@ -79,34 +78,34 @@ fun LearnflowlyScreenPreview() {
 
 @Composable
 fun LearnflowlyScreen(
+    viewModel: LearnFlowViewModel? = null,
     cameraEngine: CameraFlowEngine? = null,
-    aiEngine: LearnFlowEngine? = null,
-    brainEngine: BrainEngine? = null,
     sttEngine: SpeechToTextEngine? = null,
 ) {
     var interactionState by remember { mutableStateOf(InteractionState.IDLE) }
-    var aiResponse by remember { mutableStateOf<String?>(null) }
-    var transcription by remember { mutableStateOf("") }
-    var isThinking by remember { mutableStateOf(value = false) }
-    val coroutineScope = rememberCoroutineScope()
+    
+    // Collect the memory state
+    val chatHistory by viewModel?.chatHistory?.collectAsState() ?: remember { mutableStateOf(emptyList<ChatMessage>()) }
+    val isProcessing by viewModel?.isProcessing?.collectAsState() ?: remember { mutableStateOf(false) }
+    
+    // Controls auto-scrolling to the latest message
+    val listState = rememberLazyListState()
 
-    // Handle Voice Mode Transcription and Brain Engine Processing
+    // Auto-scroll logic
+    LaunchedEffect(chatHistory.size) {
+        if (chatHistory.isNotEmpty()) {
+            listState.animateScrollToItem(chatHistory.size - 1)
+        }
+    }
+
+    // Handle Voice Mode Transcription
     LaunchedEffect(interactionState) {
         if (interactionState == InteractionState.VOICE) {
-            transcription = "Listening..."
             sttEngine?.recordAudioStream(
-                onPartialResult = { partial ->
-                    transcription = partial
-                }
+                onPartialResult = { /* could display partial in UI if needed */ }
             ) { final ->
-                transcription = final
-                coroutineScope.launch {
-                    isThinking = true
-                    val response = brainEngine?.generateMentorResponse(final)
-                    aiResponse = response
-                    isThinking = false
-                    interactionState = InteractionState.IDLE
-                }
+                viewModel?.submitPrompt(final)
+                interactionState = InteractionState.IDLE
             }
         } else {
             sttEngine?.stopListening()
@@ -124,15 +123,40 @@ fun LearnflowlyScreen(
         // 2. Top App Bar
         TopAppBar()
 
-        // 3. Center Guidance Text or Transcription
-        Box(
+        // 3. The Memory Stream (Chat History)
+        LazyColumn(
+            state = listState,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 140.dp)
-                .fillMaxWidth(),
-            contentAlignment = Alignment.Center
+                .fillMaxSize()
+                .padding(top = 80.dp, bottom = 140.dp, start = 16.dp, end = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (interactionState == InteractionState.IDLE) {
+            // Filter out the SYSTEM prompt so the user doesn't see it
+            items(chatHistory.filter { it.role != ChatRole.SYSTEM }) { message ->
+                ChatBubble(message = message)
+            }
+            
+            if (isProcessing) {
+                item {
+                    Text(
+                        text = "Learnflowly is thinking...", 
+                        color = OnSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+            }
+        }
+
+        // 4. Center Guidance Text (Show only if idle and history is empty)
+        if (interactionState == InteractionState.IDLE && chatHistory.filter { it.role != ChatRole.SYSTEM }.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 140.dp)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 Text(
                     text = "TAP OR SWIPE TO INTERACT",
                     color = OnSurfaceVariant.copy(alpha = 0.6f),
@@ -140,54 +164,55 @@ fun LearnflowlyScreen(
                     fontWeight = FontWeight.Medium,
                     letterSpacing = 1.sp
                 )
-            } else if ((interactionState == InteractionState.VOICE) || isThinking) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = if (isThinking) "THINKING..." else transcription.uppercase(),
-                        color = PrimaryColor,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    )
-                }
             }
         }
 
-        // 4. Bottom Interaction Zone
+        // 5. Bottom Interaction Zone
         BottomInteractionZone(
             state = interactionState,
             onStateChange = { interactionState = it },
             onSubmitPrompt = { userText ->
-                coroutineScope.launch {
-                    isThinking = true
-                    println("Sending to Brain Engine: $userText")
-                    val response = brainEngine?.generateMentorResponse(userText)
-                    aiResponse = response
-                    isThinking = false
-                    println("Brain Engine Response: $response")
-                }
+                viewModel?.submitPrompt(userText)
             }
         )
 
-        // 5. Video Mode Overlay (Swipe Right)
+        // 6. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
             VideoOverlay(
                 onClose = { interactionState = InteractionState.IDLE }
             )
         }
+    }
+}
 
-        // Display AI Response if any
-        aiResponse?.let { response ->
-            AlertDialog(
-                onDismissRequest = { aiResponse = null },
-                confirmButton = {
-                    TextButton(onClick = { aiResponse = null }) {
-                        Text("OK")
-                    }
-                },
-                title = { Text("AI Analysis") },
-                text = { Text(response) }
+@Composable
+fun ChatBubble(message: ChatMessage) {
+    val isUser = message.role == ChatRole.USER
+    val alignment = if (isUser) Alignment.End else Alignment.Start
+    val bgColor = if (isUser) PrimaryColor else SecondaryContainer
+    val textColor = if (isUser) Color.White else OnSurface
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = alignment
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .clip(RoundedCornerShape(
+                    topStart = 16.dp,
+                    topEnd = 16.dp,
+                    bottomStart = if (isUser) 16.dp else 4.dp,
+                    bottomEnd = if (isUser) 4.dp else 16.dp
+                ))
+                .background(bgColor)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = message.content,
+                color = textColor,
+                fontSize = 14.sp,
+                lineHeight = 20.sp
             )
         }
     }
@@ -195,7 +220,7 @@ fun LearnflowlyScreen(
 
 @Composable
 fun CentralGlowOrb(state: InteractionState) {
-    val infiniteTransition = rememberInfiniteTransition()
+    val infiniteTransition = rememberInfiniteTransition(label = "orb_infinite")
     val scale by infiniteTransition.animateFloat(
         initialValue = 1f,
         targetValue = 1.15f,
@@ -327,7 +352,10 @@ fun BottomInteractionZone(
         ) {
             TextInputBar(
                 onClose = { onStateChange(InteractionState.IDLE) },
-                onSubmit = onSubmitPrompt
+                onSubmit = {
+                    onSubmitPrompt(it)
+                    onStateChange(InteractionState.IDLE)
+                }
             )
         }
 
@@ -353,16 +381,8 @@ fun BottomInteractionZone(
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragEnd = {
-                            // Logic mapping to prompt specifications:
-                            // Swipe Up (Negative Y) -> Voice
-                            // Swipe Right (Positive X) -> Video
                             if (-offsetY > 150f && abs(offsetY) > abs(offsetX)) {
                                 onStateChange(InteractionState.VOICE)
-                                // Auto-reset voice after a few seconds for demo purposes
-                                coroutineScope.launch {
-                                    delay(4000.milliseconds)
-                                    onStateChange(InteractionState.IDLE)
-                                }
                             } else if (offsetX > 150f && abs(offsetX) > abs(offsetY)) {
                                 onStateChange(InteractionState.VIDEO)
                             }
@@ -385,7 +405,7 @@ fun BottomInteractionZone(
             Box(
                 modifier = Modifier
                     .size(48.dp)
-                    .scale(pulseScale) // Apply the pulse animation here
+                    .scale(pulseScale)
                     .clip(CircleShape)
                     .background(PrimaryColor.copy(alpha = 0.1f))
                     .border(1.dp, PrimaryColor.copy(alpha = 0.3f), CircleShape)
@@ -428,17 +448,16 @@ fun TextInputBar(
             singleLine = true
         )
         
-        // Dynamically show the Send/Upload button only when there is text
         AnimatedVisibility(visible = text.isNotBlank()) {
             IconButton(
                 onClick = { 
                     onSubmit(text)
-                    text = "" // Clear the input after sending
+                    text = ""
                 }
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Send, 
-                    contentDescription = "Send to Brain Engine",
+                    contentDescription = "Send",
                     tint = PrimaryColor
                 )
             }
@@ -484,7 +503,6 @@ fun VideoOverlay(onClose: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            // Header
             Icon(
                 imageVector = Icons.Default.Videocam,
                 contentDescription = "Visual Mode",
@@ -505,7 +523,6 @@ fun VideoOverlay(onClose: () -> Unit) {
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp)
             )
 
-            // 2x2 Action Grid
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -514,17 +531,13 @@ fun VideoOverlay(onClose: () -> Unit) {
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Image,
                     title = "Upload\nPhoto",
-                    onClick = { 
-                        // [AI DEVELOPER INSTRUCTION: Launch ActivityResultContracts.PickVisualMedia for ImageOnly] 
-                    }
+                    onClick = { }
                 )
                 MediaCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.VideoFile,
                     title = "Upload\nVideo",
-                    onClick = { 
-                        // [AI DEVELOPER INSTRUCTION: Launch ActivityResultContracts.PickVisualMedia for VideoOnly] 
-                    }
+                    onClick = { }
                 )
             }
             
@@ -538,17 +551,13 @@ fun VideoOverlay(onClose: () -> Unit) {
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.CameraAlt,
                     title = "Capture\nPhoto",
-                    onClick = { 
-                        // [AI DEVELOPER INSTRUCTION: Launch MediaStore.ACTION_IMAGE_CAPTURE] 
-                    }
+                    onClick = { }
                 )
                 MediaCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Videocam,
                     title = "Capture\nVideo",
-                    onClick = { 
-                        // [AI DEVELOPER INSTRUCTION: Launch MediaStore.ACTION_VIDEO_CAPTURE] 
-                    }
+                    onClick = { }
                 )
             }
 
@@ -588,7 +597,7 @@ fun MediaCard(
             Icon(
                 imageVector = icon,
                 contentDescription = title,
-                tint = PrimaryContainer, // Syncs with your Learnflowly theme
+                tint = PrimaryContainer,
                 modifier = Modifier.size(32.dp)
             )
             Spacer(modifier = Modifier.height(12.dp))
@@ -604,7 +613,6 @@ fun MediaCard(
     }
 }
 
-// Data class to hold the unique physics traits of each particle
 private data class SwarmParticle(
     val orbitRadius: Float,
     val speed: Float,
@@ -616,7 +624,6 @@ private data class SwarmParticle(
 
 @Composable
 fun ParticleSwarm(modifier: Modifier = Modifier, particleColor: Color) {
-    // Drives the continuous time loop for the animation
     val infiniteTransition = rememberInfiniteTransition(label = "swarm_timer")
     val time by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -638,36 +645,28 @@ fun ParticleSwarm(modifier: Modifier = Modifier, particleColor: Color) {
         label = "swarm_rotation"
     )
 
-    // Generate the particle "DNA" once and remember it
     val particles = remember {
         List(100) {
             SwarmParticle(
-                orbitRadius = Random.nextFloat() * 40f + 5f, // Distance from center
-                speed = (Random.nextFloat() * 0.08f) + 0.02f,   // Orbital speed
-                angleOffset = Random.nextFloat() * (2 * Math.PI.toFloat()), // Starting position
-                wobbleSpeed = Random.nextFloat() * 0.2f,      // How fast it moves in/out
-                wobbleAmplitude = Random.nextFloat() * 10f,   // How far it moves in/out
-                size = Random.nextFloat() * 2.5f + 1f           // Size of the particle dot
+                orbitRadius = Random.nextFloat() * 40f + 5f,
+                speed = (Random.nextFloat() * 0.08f) + 0.02f,
+                angleOffset = Random.nextFloat() * (2 * Math.PI.toFloat()),
+                wobbleSpeed = Random.nextFloat() * 0.2f,
+                wobbleAmplitude = Random.nextFloat() * 10f,
+                size = Random.nextFloat() * 2.5f + 1f
             )
         }
     }
 
-    // High-performance drawing canvas
     Canvas(modifier = modifier.graphicsLayer { rotationZ = rotation }) {
         val center = Offset(size.width / 2, size.height / 2)
 
         particles.forEach { p ->
-            // 1. Calculate the current angle on the circle
             val currentAngle = p.angleOffset + (time * p.speed)
-            
-            // 2. Add organic in/out movement (the "breathing" or "wobbling" effect)
             val currentRadius = p.orbitRadius + (sin(time * p.wobbleSpeed) * p.wobbleAmplitude)
-
-            // 3. Convert polar coordinates (angle/radius) to X/Y screen coordinates
             val x = center.x + cos(currentAngle) * currentRadius
             val y = center.y + sin(currentAngle) * currentRadius
 
-            // 4. Draw the particle
             drawCircle(
                 color = particleColor.copy(alpha = 0.8f),
                 radius = p.size,
