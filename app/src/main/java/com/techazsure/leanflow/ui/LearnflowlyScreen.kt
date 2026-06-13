@@ -31,6 +31,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,9 +50,11 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
 import com.techazsure.leanflow.CameraFlowEngine
 import com.techazsure.leanflow.SpeechToTextEngine
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.camera.view.PreviewView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -68,7 +71,7 @@ val PrimaryContainer = Color(0xFF6063EE)
 val OnSurface = Color(0xFF0B1C30)
 val OnSurfaceVariant = Color(0xFF464554)
 
-enum class InteractionState { IDLE, TEXT, VOICE, VIDEO }
+enum class InteractionState { IDLE, TEXT, VOICE, VIDEO, LIVE_CHAT }
 
 @Preview(showBackground = true)
 @Composable
@@ -82,11 +85,13 @@ fun LearnflowlyScreen(
     cameraEngine: CameraFlowEngine? = null,
     sttEngine: SpeechToTextEngine? = null,
 ) {
-    var interactionState by remember { mutableStateOf(InteractionState.IDLE) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var interactionState by rememberSaveable { mutableStateOf(InteractionState.IDLE) }
     
     // Collect the memory state
     val chatHistory by viewModel?.chatHistory?.collectAsState() ?: remember { mutableStateOf(emptyList<ChatMessage>()) }
     val isProcessing by viewModel?.isProcessing?.collectAsState() ?: remember { mutableStateOf(false) }
+    val engineStatus by viewModel?.engineStatus?.collectAsState() ?: remember { mutableStateOf(null) }
     
     // Controls auto-scrolling to the latest message
     val listState = rememberLazyListState()
@@ -132,7 +137,7 @@ fun LearnflowlyScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Filter out the SYSTEM prompt so the user doesn't see it
-            items(chatHistory.filter { it.role != ChatRole.SYSTEM }) { message ->
+            items(chatHistory.filter { it.role != ChatRole.SYSTEM }, key = { it.id }) { message ->
                 ChatBubble(message = message)
             }
             
@@ -157,13 +162,24 @@ fun LearnflowlyScreen(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "TAP OR SWIPE TO INTERACT",
-                    color = OnSurfaceVariant.copy(alpha = 0.6f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    letterSpacing = 1.sp
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "TAP OR SWIPE TO INTERACT",
+                        color = OnSurfaceVariant.copy(alpha = 0.6f),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        letterSpacing = 1.sp
+                    )
+                    engineStatus?.let {
+                        Text(
+                            text = it,
+                            color = Color.Red.copy(alpha = 0.6f),
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(top = 8.dp),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             }
         }
 
@@ -179,8 +195,38 @@ fun LearnflowlyScreen(
         // 6. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
             VideoOverlay(
-                onClose = { interactionState = InteractionState.IDLE }
+                onClose = { interactionState = InteractionState.IDLE },
+                onStartLiveStream = {
+                    interactionState = InteractionState.LIVE_CHAT
+                }
             )
+        }
+        
+        // 7. Live Chat Mode Viewport
+        if (interactionState == InteractionState.LIVE_CHAT) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                AndroidView(
+                    factory = { context ->
+                        PreviewView(context).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    update = { previewView ->
+                        cameraEngine?.startCameraPreview(
+                            lifecycleOwner = lifecycleOwner,
+                            previewView = previewView
+                        )
+                    }
+                )
+                
+                IconButton(
+                    onClick = { interactionState = InteractionState.IDLE },
+                    modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = "Exit Live Mode", tint = Color.White)
+                }
+            }
         }
     }
 }
@@ -304,7 +350,6 @@ fun BottomInteractionZone(
 ) {
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    val coroutineScope = rememberCoroutineScope()
 
     // Smooth return to center
     val animatedOffsetX by animateFloatAsState(targetValue = offsetX, animationSpec = spring(), label = "offset_x")
@@ -491,7 +536,10 @@ fun VoiceDot(delayMillis: Int) {
 }
 
 @Composable
-fun VideoOverlay(onClose: () -> Unit) {
+fun VideoOverlay(
+    onClose: () -> Unit,
+    onStartLiveStream: () -> Unit = {},
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -529,15 +577,15 @@ fun VideoOverlay(onClose: () -> Unit) {
             ) {
                 MediaCard(
                     modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Image,
-                    title = "Upload\nPhoto",
-                    onClick = { }
+                    icon = Icons.Default.Videocam,
+                    title = "Live Stream",
+                    onClick = { onStartLiveStream() }
                 )
                 MediaCard(
                     modifier = Modifier.weight(1f),
-                    icon = Icons.Default.VideoFile,
-                    title = "Upload\nVideo",
-                    onClick = { }
+                    icon = Icons.Default.Image,
+                    title = "Scan Text",
+                    onClick = { /* Implement text extraction */ }
                 )
             }
             
@@ -550,13 +598,13 @@ fun VideoOverlay(onClose: () -> Unit) {
                 MediaCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.CameraAlt,
-                    title = "Capture\nPhoto",
-                    onClick = { }
+                    title = "Scan Image",
+                    onClick = { /* Implement document scanning */ }
                 )
                 MediaCard(
                     modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Videocam,
-                    title = "Capture\nVideo",
+                    icon = Icons.Default.VideoFile,
+                    title = "Upload\nVideo",
                     onClick = { }
                 )
             }

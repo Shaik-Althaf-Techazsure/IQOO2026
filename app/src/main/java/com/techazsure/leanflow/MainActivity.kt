@@ -23,22 +23,20 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var viewModel: LearnFlowViewModel
 
-    private var isBrainReady by mutableStateOf(false)
-    private var isSttReady by mutableStateOf(false)
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         aiEngine = LearnFlowEngine(applicationContext) { ready, message ->
-            isBrainReady = ready
             println("[MAIN] Brain Engine Status: $ready - $message")
+            if (::viewModel.isInitialized) {
+                viewModel.setEngineStatus(message)
+            }
         }
 
         cameraEngine = CameraFlowEngine(applicationContext)
 
         sttEngine = SpeechToTextEngine(applicationContext) { ready ->
-            isSttReady = ready
             println("[MAIN] STT Engine Status: $ready")
         }
         

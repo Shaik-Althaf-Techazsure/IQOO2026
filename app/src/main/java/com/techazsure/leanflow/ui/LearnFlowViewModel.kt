@@ -20,6 +20,9 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
+    private val _engineStatus = MutableStateFlow<String?>(null)
+    val engineStatus: StateFlow<String?> = _engineStatus.asStateFlow()
+
     init {
         // Inject the initial system persona into the memory
         _chatHistory.value = listOf(
@@ -28,6 +31,10 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
                 content = "You are Learnflowly, a highly advanced, concise, and helpful AI educational assistant running locally on a mobile device."
             )
         )
+    }
+    
+    fun setEngineStatus(message: String) {
+        _engineStatus.value = message
     }
 
     fun submitPrompt(userText: String) {
