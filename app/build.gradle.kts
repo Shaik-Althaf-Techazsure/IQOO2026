@@ -55,6 +55,7 @@ dependencies {
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
     implementation(libs.play.services.document.scanner)
+    implementation(libs.mlkit.text.recognition)
     implementation(libs.vosk.android)
     implementation(libs.google.mediapipe.tasks.genai)
     implementation(libs.androidx.material3)

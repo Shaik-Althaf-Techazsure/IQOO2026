@@ -38,6 +38,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        println("[DEBUG_LIFECYCLE] MainActivity onCreate triggered!")
         enableEdgeToEdge()
 
         setContent {

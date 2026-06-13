@@ -125,72 +125,96 @@ fun LearnflowlyScreen(
         // 1. Ambient Background & Central Orb
         CentralGlowOrb(interactionState)
 
-        // 2. Top App Bar
-        TopAppBar()
-
-        // 3. The Memory Stream (Chat History)
-        LazyColumn(
-            state = listState,
+        // SAFE ZONE WRAPPER: Handles System Bars AND Landscape Camera Notches
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = 80.dp, bottom = 140.dp, start = 16.dp, end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .safeDrawingPadding()
+                .displayCutoutPadding()
         ) {
-            // Filter out the SYSTEM prompt so the user doesn't see it
-            items(chatHistory.filter { it.role != ChatRole.SYSTEM }, key = { it.id }) { message ->
-                ChatBubble(message = message)
-            }
-            
-            if (isProcessing) {
-                item {
-                    Text(
-                        text = "Learnflowly is thinking...", 
-                        color = OnSurfaceVariant.copy(alpha = 0.7f),
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(start = 8.dp)
-                    )
-                }
-            }
-        }
-
-        // 4. Center Guidance Text (Show only if idle and history is empty)
-        if (interactionState == InteractionState.IDLE && chatHistory.filter { it.role != ChatRole.SYSTEM }.isEmpty()) {
+            // RESPONSIVE CONTENT CONTAINER: The "Landscape Constraint"
             Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 140.dp)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
+                    .fillMaxHeight()
+                    .widthIn(max = 800.dp)
+                    .align(Alignment.Center)
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "TAP OR SWIPE TO INTERACT",
-                        color = OnSurfaceVariant.copy(alpha = 0.6f),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        letterSpacing = 1.sp
-                    )
-                    engineStatus?.let {
-                        Text(
-                            text = it,
-                            color = Color.Red.copy(alpha = 0.6f),
-                            fontSize = 10.sp,
-                            modifier = Modifier.padding(top = 8.dp),
-                            textAlign = TextAlign.Center
-                        )
+                // 2. The Memory Stream (Chat History)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(
+                        top = 80.dp,
+                        bottom = 160.dp,
+                        start = 16.dp,
+                        end = 16.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Filter out the SYSTEM prompt so the user doesn't see it
+                    items(chatHistory.filter { it.role != ChatRole.SYSTEM }, key = { it.id }) { message ->
+                        ChatBubble(message = message)
                     }
+                    
+                    if (isProcessing) {
+                        item {
+                            Text(
+                                text = "Learnflowly is thinking...", 
+                                color = OnSurfaceVariant.copy(alpha = 0.7f),
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(start = 8.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 3. Top App Bar
+                TopAppBar(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
+
+                // 4. Center Guidance Text
+                AnimatedVisibility(
+                    visible = interactionState == InteractionState.IDLE && chatHistory.filter { it.role != ChatRole.SYSTEM }.isEmpty(),
+                    enter = fadeIn(tween(500)),
+                    exit = fadeOut(tween(300)),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "TAP OR SWIPE TO INTERACT",
+                            color = OnSurfaceVariant.copy(alpha = 0.6f),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.sp
+                        )
+                        engineStatus?.let {
+                            Text(
+                                text = it,
+                                color = Color.Red.copy(alpha = 0.6f),
+                                fontSize = 10.sp,
+                                modifier = Modifier.padding(top = 8.dp),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                // 5. Bottom Interaction Zone
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp, start = 16.dp, end = 16.dp)
+                ) {
+                    BottomInteractionZone(
+                        state = interactionState,
+                        onStateChange = { interactionState = it },
+                        onSubmitPrompt = { userText ->
+                            viewModel?.submitPrompt(userText)
+                        }
+                    )
                 }
             }
         }
-
-        // 5. Bottom Interaction Zone
-        BottomInteractionZone(
-            state = interactionState,
-            onStateChange = { interactionState = it },
-            onSubmitPrompt = { userText ->
-                viewModel?.submitPrompt(userText)
-            }
-        )
 
         // 6. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
@@ -304,9 +328,9 @@ fun CentralGlowOrb(state: InteractionState) {
 }
 
 @Composable
-fun TopAppBar() {
+fun TopAppBar(modifier: Modifier = Modifier) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp, vertical = 16.dp)
             .statusBarsPadding()
