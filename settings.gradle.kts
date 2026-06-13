@@ -15,10 +15,9 @@ dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
         google()
-        mavenCentral()
+        mavenCentral() // Vosk downloads straight from here now!
     }
 }
 
 rootProject.name = "LeanFlow"
 include(":app")
- 
