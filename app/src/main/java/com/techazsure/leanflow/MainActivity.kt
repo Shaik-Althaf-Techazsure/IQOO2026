@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LearnflowlyScreen(cameraEngine)
+                    LearnflowlyScreen(cameraEngine, aiEngine)
                 }
             }
         }
