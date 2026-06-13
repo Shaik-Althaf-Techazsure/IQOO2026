@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -12,8 +13,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -32,12 +36,13 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.viewinterop.AndroidView
 import com.techazsure.leanflow.CameraFlowEngine
 import com.techazsure.leanflow.LearnFlowEngine
 import com.techazsure.leanflow.BrainEngine
@@ -168,7 +173,6 @@ fun LearnflowlyScreen(
         // 5. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
             VideoOverlay(
-                cameraEngine = cameraEngine,
                 onClose = { interactionState = InteractionState.IDLE }
             )
         }
@@ -281,6 +285,18 @@ fun BottomInteractionZone(
     val animatedOffsetX by animateFloatAsState(targetValue = offsetX, animationSpec = spring(), label = "offset_x")
     val animatedOffsetY by animateFloatAsState(targetValue = offsetY, animationSpec = spring(), label = "offset_y")
 
+    // Pulsing animation for the button core
+    val pulseTransition = rememberInfiniteTransition(label = "button_pulse")
+    val pulseScale by pulseTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse_scale"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -369,6 +385,7 @@ fun BottomInteractionZone(
             Box(
                 modifier = Modifier
                     .size(48.dp)
+                    .scale(pulseScale) // Apply the pulse animation here
                     .clip(CircleShape)
                     .background(PrimaryColor.copy(alpha = 0.1f))
                     .border(1.dp, PrimaryColor.copy(alpha = 0.3f), CircleShape)
@@ -455,81 +472,134 @@ fun VoiceDot(delayMillis: Int) {
 }
 
 @Composable
-fun VideoOverlay(cameraEngine: CameraFlowEngine?, onClose: () -> Unit) {
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var hasCameraPermission by remember { mutableStateOf(value = false) }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasCameraPermission = isGranted
-    }
-
-    LaunchedEffect(Unit) {
-        launcher.launch(android.Manifest.permission.CAMERA)
-    }
-
+fun VideoOverlay(onClose: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.9f)),
+            .background(Color.Black.copy(alpha = 0.9f))
+            .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (hasCameraPermission && cameraEngine != null) {
-            AndroidView(
-                factory = { ctx ->
-                    PreviewView(ctx).apply {
-                        cameraEngine.startCameraPreview(lifecycleOwner, this)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        }
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Spacer(modifier = Modifier.weight(1f))
-            if (!hasCameraPermission) {
-                Icon(
-                    imageVector = Icons.Default.Videocam,
-                    contentDescription = "Video Mode",
-                    tint = PrimaryContainer,
-                    modifier = Modifier.size(80.dp)
+            // Header
+            Icon(
+                imageVector = Icons.Default.Videocam,
+                contentDescription = "Visual Mode",
+                tint = PrimaryContainer,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "VISUAL CONTEXT",
+                color = Color.White,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+            Text(
+                text = "Provide visual data to Learnflowly",
+                color = Color.White.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 8.dp, bottom = 48.dp)
+            )
+
+            // 2x2 Action Grid
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                MediaCard(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Image,
+                    title = "Upload\nPhoto",
+                    onClick = { 
+                        // [AI DEVELOPER INSTRUCTION: Launch ActivityResultContracts.PickVisualMedia for ImageOnly] 
+                    }
                 )
-                Spacer(modifier = Modifier.height(24.dp))
-                Text(
-                    text = "VIDEO MODE",
-                    color = Color.White,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 2.sp
-                )
-                Text(
-                    text = "Camera permission required",
-                    color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            } else {
-                Text(
-                    text = "LEARNFLOW VIDEO FEED",
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 4.dp)
+                MediaCard(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.VideoFile,
+                    title = "Upload\nVideo",
+                    onClick = { 
+                        // [AI DEVELOPER INSTRUCTION: Launch ActivityResultContracts.PickVisualMedia for VideoOnly] 
+                    }
                 )
             }
-            Spacer(modifier = Modifier.weight(1f))
+            
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                MediaCard(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.CameraAlt,
+                    title = "Capture\nPhoto",
+                    onClick = { 
+                        // [AI DEVELOPER INSTRUCTION: Launch MediaStore.ACTION_IMAGE_CAPTURE] 
+                    }
+                )
+                MediaCard(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Default.Videocam,
+                    title = "Capture\nVideo",
+                    onClick = { 
+                        // [AI DEVELOPER INSTRUCTION: Launch MediaStore.ACTION_VIDEO_CAPTURE] 
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
+            
             Button(
                 onClick = onClose,
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))
             ) {
-                Text("End Stream", color = Color.White)
+                Text("Close", color = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+fun MediaCard(
+    modifier: Modifier = Modifier,
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = modifier
+            .height(120.dp)
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White.copy(alpha = 0.1f)
+        ),
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = title,
+                tint = PrimaryContainer, // Syncs with your Learnflowly theme
+                modifier = Modifier.size(32.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
+            )
         }
     }
 }
@@ -552,28 +622,38 @@ fun ParticleSwarm(modifier: Modifier = Modifier, particleColor: Color) {
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            animation = tween(100000, easing = LinearEasing),
+            animation = tween(40000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
         label = "time_float"
     )
 
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(15000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "swarm_rotation"
+    )
+
     // Generate the particle "DNA" once and remember it
     val particles = remember {
-        List(150) {
+        List(100) {
             SwarmParticle(
-                orbitRadius = Random.nextFloat() * 50f + 10f, // Distance from center
-                speed = (Random.nextFloat() * 0.04f) + 0.01f,   // Orbital speed
+                orbitRadius = Random.nextFloat() * 40f + 5f, // Distance from center
+                speed = (Random.nextFloat() * 0.08f) + 0.02f,   // Orbital speed
                 angleOffset = Random.nextFloat() * (2 * Math.PI.toFloat()), // Starting position
-                wobbleSpeed = Random.nextFloat() * 0.1f,      // How fast it moves in/out
-                wobbleAmplitude = Random.nextFloat() * 15f,   // How far it moves in/out
-                size = Random.nextFloat() * 3f + 1f           // Size of the particle dot
+                wobbleSpeed = Random.nextFloat() * 0.2f,      // How fast it moves in/out
+                wobbleAmplitude = Random.nextFloat() * 10f,   // How far it moves in/out
+                size = Random.nextFloat() * 2.5f + 1f           // Size of the particle dot
             )
         }
     }
 
     // High-performance drawing canvas
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.graphicsLayer { rotationZ = rotation }) {
         val center = Offset(size.width / 2, size.height / 2)
 
         particles.forEach { p ->

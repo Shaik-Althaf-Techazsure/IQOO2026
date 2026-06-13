@@ -16,30 +16,36 @@ import kotlinx.coroutines.launch
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.techazsure.leanflow.ui.LearnflowlyScreen
 
 class MainActivity : ComponentActivity() {
 
     private lateinit var aiEngine: LearnFlowEngine
+    private lateinit var cameraEngine: CameraFlowEngine
+    private lateinit var brainEngine: BrainEngine
+    private lateinit var sttEngine: SpeechToTextEngine
+
+    private var isBrainReady by mutableStateOf(false)
+    private var isSttReady by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         aiEngine = LearnFlowEngine(applicationContext)
+        cameraEngine = CameraFlowEngine(applicationContext)
+        
+        brainEngine = BrainEngine(applicationContext) { ready, message ->
+            isBrainReady = ready
+            println("[MAIN] Brain Engine Status: $ready - $message")
+        }
 
-        lifecycleScope.launch {
-            val sampleSubject = "EEE_Induction_Motors"
-            val sampleLecture = "A three-phase induction motor runs at synchronous speed Ns = 120f / P."
-
-            println("[TEST RUN] Triggering baseline mobile local inference check...")
-
-            try {
-                val resultJson = aiEngine.synthesizeActiveRecall(sampleSubject, sampleLecture)
-                println("[TEST RESULT MATRIX] $resultJson")
-            } catch (e: Exception) {
-                println("[TEST ERROR] ${e.message}")
-            }
+        sttEngine = SpeechToTextEngine(applicationContext) { ready ->
+            isSttReady = ready
+            println("[MAIN] STT Engine Status: $ready")
         }
 
         setContent {
@@ -48,9 +54,19 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    LearnflowlyScreen()
+                    LearnflowlyScreen(
+                        cameraEngine = cameraEngine,
+                        aiEngine = aiEngine,
+                        brainEngine = brainEngine,
+                        sttEngine = sttEngine
+                    )
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraEngine.shutdownExecutor()
     }
 }
