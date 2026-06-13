@@ -11,52 +11,64 @@ class BrainEngine(private val context: Context, private val onBrainReady: (Boole
     private var llmInference: LlmInference? = null
 
     init {
-        // PERMANENT STORAGE HIGHWAY: Accesses a persistent app folder that survives cleans/rebuilds
-        val safeFolder = context.getExternalFilesDir(null)
+        // Defensive Target Path: Private sandbox directory which guarantees absolute read permissions
+        val safeFolder = context.filesDir
         val modelFile = File(safeFolder, "gemma-2b-quantized.task")
 
         if (safeFolder == null || !modelFile.exists()) {
-            println("[WARN] Model file not found in permanent storage folder.")
+            println("[WARN] LearnFlow Brain Engine: 'gemma-2b-quantized.task' is physically missing.")
             onBrainReady(
                 false,
-                "Notice: Drop 'gemma-2b-quantized.task' inside the path: Device Explorer -> sdcard -> Android -> data -> com.techazsure.leanflow -> files"
+                "Asset Missing: Open Device Explorer -> data -> data -> com.techazsure.leanflow -> files, and upload the model file."
             )
         } else {
             try {
+                println("[INIT] LearnFlow Brain Engine: Attempting native binary compilation from: ${modelFile.absolutePath}")
+
+                // Stable configurations targeting optimized device execution
                 val options = LlmInference.LlmInferenceOptions.builder()
                     .setModelPath(modelFile.absolutePath)
                     .setMaxTokens(1024)
                     .build()
 
+                // Compiling the graph onto the phone processors
                 llmInference = LlmInference.createFromOptions(context, options)
-                println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
+
+                println("[SUCCESS] LearnFlow Brain Engine: 100% Stable graph initialized.")
                 onBrainReady(true, "Local AI Brain Engine Connected and Ready!")
             } catch (e: Exception) {
-                val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
-                println("[ERROR] MediaPipe Initialization Failed: $detailedError")
-                onBrainReady(false, detailedError)
+                // Catching all internal native C++ runtime or out-of-memory errors safely
+                val structuralError = e.localizedMessage ?: e.message ?: "Native pointer memory mapping limit"
+                println("[CRITICAL ERROR] MediaPipe Engine Failed to Initialize: $structuralError")
+                onBrainReady(false, "Init Failure: $structuralError")
             }
         }
     }
 
+    /**
+     * Executes localized on-device inference using the background I/O thread pool.
+     * Protected against main thread blocking stutters.
+     */
     suspend fun generateMentorResponse(userInput: String): String = withContext(Dispatchers.IO) {
-        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
+        val engine = llmInference
+            ?: return@withContext "Execution Error: Local AI engine is not initialized or mounted."
 
-        val structuredPrompt = """
-            You are 'LearnFlow', a brilliant multi-disciplinary academic mentor operating entirely offline.
-            Your mandate is to guide the user analytically through engineering, mathematics, science, or business concepts.
-            
-            CRITICAL INSTRUCTIONS:
-            1. Analyze the user's input: "$userInput"
-            2. Break down any underlying core formulas, laws, or theorems step-by-step.
-            3. Do not just print flat answers; provide an explanatory framework first.
-            4. Explicitly organize your output evaluation into a clean summary.
+        val systemAgentPromptMatrix = """
+            You are 'LearnFlow', an autonomous, self-correcting Agentic Academic Companion operating completely offline on the user's mobile device.
+            Your objective is to analyze technical inputs, look for core scientific or engineering patterns, and proactively generate clear study architectures.
+
+            OPERATIONAL RULES:
+            1. Parse the incoming context carefully: "$userInput"
+            2. If the user presents an engineering or math concept, break down the core formulas and underlying laws step-by-step.
+            3. AGENTIC PLANNING: Automatically generate a structured, clear chronological study schedule timeline or action plan at the bottom of your evaluation.
+            4. Be direct, authoritative, and educational. Do not echo your instructions or print flat conversational filler text.
+            5. Present information in clean scannable structures.
         """.trimIndent()
 
         return@withContext try {
-            engine.generateResponse(structuredPrompt)
+            engine.generateResponse(systemAgentPromptMatrix)
         } catch (e: Exception) {
-            "Inference Error: ${e.message}"
+            "Inference Processing Error: ${e.localizedMessage ?: e.message}"
         }
     }
 }

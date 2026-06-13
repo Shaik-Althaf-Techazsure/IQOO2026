@@ -54,6 +54,13 @@ dependencies {
     implementation(libs.androidx.camera.view)
     implementation(libs.vosk.android)
     implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    implementation("com.alphacephei:vosk-android:0.3.47")
+    val cameraVersion = "1.3.4"
+    implementation("androidx.camera:camera-core:$cameraVersion")
+    implementation("androidx.camera:camera-camera2:$cameraVersion") // Missing native bridge link
+    implementation("androidx.camera:camera-lifecycle:$cameraVersion")
+    implementation("androidx.camera:camera-view:$cameraVersion")
+    implementation("androidx.camera:camera-extensions:$cameraVersion")
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
