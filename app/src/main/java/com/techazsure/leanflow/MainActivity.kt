@@ -5,28 +5,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope
-import com.techazsure.leanflow.ui.theme.LeanFlowTheme
-import kotlinx.coroutines.launch
-
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope // Explicitly imported to map coroutine execution bounds
+import com.techazsure.leanflow.speech.VoiceCommandEngine
 import com.techazsure.leanflow.ui.LearnflowlyScreen
+import com.techazsure.leanflow.ui.theme.LeanFlowTheme
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var aiEngine: LearnFlowEngine
     private lateinit var cameraEngine: CameraFlowEngine
     private lateinit var brainEngine: BrainEngine
     private lateinit var sttEngine: SpeechToTextEngine
+    private lateinit var voiceCommandEngine: VoiceCommandEngine
 
     private var isBrainReady by mutableStateOf(false)
     private var isSttReady by mutableStateOf(false)
@@ -35,18 +30,22 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        aiEngine = LearnFlowEngine(applicationContext)
+        // 1. Initialize general hardware infrastructure
         cameraEngine = CameraFlowEngine(applicationContext)
-        
-        brainEngine = BrainEngine(applicationContext) { ready, message ->
+
+        // 2. Map backend engines with responsive callbacks
+        brainEngine = BrainEngine(this) { ready, message ->
             isBrainReady = ready
             println("[MAIN] Brain Engine Status: $ready - $message")
         }
 
-        sttEngine = SpeechToTextEngine(applicationContext) { ready ->
+        sttEngine = SpeechToTextEngine(this) { ready ->
             isSttReady = ready
             println("[MAIN] STT Engine Status: $ready")
         }
+
+        // 3. Bind engines to the standalone scope controller
+        voiceCommandEngine = VoiceCommandEngine(this, brainEngine, sttEngine, lifecycleScope)
 
         setContent {
             LeanFlowTheme {
@@ -54,11 +53,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // Properly matches the updated parameters in Akthar's screen declaration
                     LearnflowlyScreen(
                         cameraEngine = cameraEngine,
-                        aiEngine = aiEngine,
-                        brainEngine = brainEngine,
-                        sttEngine = sttEngine
+                        voiceCommandEngine = voiceCommandEngine
                     )
                 }
             }

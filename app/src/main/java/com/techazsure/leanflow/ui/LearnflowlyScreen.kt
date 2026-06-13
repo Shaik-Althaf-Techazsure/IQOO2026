@@ -60,6 +60,7 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
+import com.techazsure.leanflow.speech.VoiceCommandEngine
 
 // --- Theme Colors from DESIGN.md ---
 val SurfaceColor = Color(0xFFF8F9FF)
@@ -74,7 +75,14 @@ enum class InteractionState { IDLE, TEXT, VOICE, VIDEO }
 @Preview(showBackground = true)
 @Composable
 fun LearnflowlyScreenPreview() {
-    LearnflowlyScreen()
+    // FIXED: Now the preview block compiles flawlessly with no value mismatches!
+    LearnflowlyScreen(
+        cameraEngine = null,
+        aiEngine = null,
+        brainEngine = null,
+        sttEngine = null,
+        voiceCommandEngine = null
+    )
 }
 
 @Composable
@@ -83,6 +91,7 @@ fun LearnflowlyScreen(
     aiEngine: LearnFlowEngine? = null,
     brainEngine: BrainEngine? = null,
     sttEngine: SpeechToTextEngine? = null,
+    voiceCommandEngine: VoiceCommandEngine? = null
 ) {
     var interactionState by remember { mutableStateOf(InteractionState.IDLE) }
     var aiResponse by remember { mutableStateOf<String?>(null) }
