@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Videocam
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.LifecycleOwner
 import com.techazsure.leanflow.CameraFlowEngine
+import com.techazsure.leanflow.LearnFlowEngine
 import androidx.camera.view.PreviewView
 import androidx.compose.runtime.LaunchedEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -61,8 +63,9 @@ fun LearnflowlyScreenPreview() {
 }
 
 @Composable
-fun LearnflowlyScreen(cameraEngine: CameraFlowEngine? = null) {
+fun LearnflowlyScreen(cameraEngine: CameraFlowEngine? = null, aiEngine: LearnFlowEngine? = null) {
     var interactionState by remember { mutableStateOf(InteractionState.IDLE) }
+    var aiResponse by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     Box(
@@ -97,7 +100,16 @@ fun LearnflowlyScreen(cameraEngine: CameraFlowEngine? = null) {
         // 4. Bottom Interaction Zone
         BottomInteractionZone(
             state = interactionState,
-            onStateChange = { interactionState = it }
+            onStateChange = { interactionState = it },
+            onSubmitPrompt = { userText ->
+                coroutineScope.launch {
+                    println("Sending to Brain Engine: $userText")
+                    // simulated call or real call if aiEngine is available
+                    val response = aiEngine?.synthesizeActiveRecall("User Query", userText)
+                    aiResponse = response
+                    println("Brain Engine Response: $response")
+                }
+            }
         )
 
         // 5. Video Mode Overlay (Swipe Right)
@@ -105,6 +117,20 @@ fun LearnflowlyScreen(cameraEngine: CameraFlowEngine? = null) {
             VideoOverlay(
                 cameraEngine = cameraEngine,
                 onClose = { interactionState = InteractionState.IDLE }
+            )
+        }
+
+        // Display AI Response if any
+        aiResponse?.let { response ->
+            AlertDialog(
+                onDismissRequest = { aiResponse = null },
+                confirmButton = {
+                    TextButton(onClick = { aiResponse = null }) {
+                        Text("OK")
+                    }
+                },
+                title = { Text("AI Analysis") },
+                text = { Text(response) }
             )
         }
     }
@@ -191,7 +217,8 @@ fun TopAppBar() {
 @Composable
 fun BottomInteractionZone(
     state: InteractionState,
-    onStateChange: (InteractionState) -> Unit
+    onStateChange: (InteractionState) -> Unit,
+    onSubmitPrompt: (String) -> Unit = {}
 ) {
     var offsetX by remember { mutableStateOf(0f) }
     var offsetY by remember { mutableStateOf(0f) }
@@ -229,7 +256,10 @@ fun BottomInteractionZone(
             exit = slideOutVertically(targetOffsetY = { 50 }) + fadeOut(),
             modifier = Modifier.padding(bottom = 100.dp)
         ) {
-            TextInputBar(onClose = { onStateChange(InteractionState.IDLE) })
+            TextInputBar(
+                onClose = { onStateChange(InteractionState.IDLE) },
+                onSubmit = onSubmitPrompt
+            )
         }
 
         // Super Circular Button
@@ -305,7 +335,10 @@ fun BottomInteractionZone(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TextInputBar(onClose: () -> Unit) {
+fun TextInputBar(
+    onClose: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
     var text by remember { mutableStateOf("") }
     
     Row(
@@ -328,6 +361,23 @@ fun TextInputBar(onClose: () -> Unit) {
             modifier = Modifier.weight(1f),
             singleLine = true
         )
+        
+        // Dynamically show the Send/Upload button only when there is text
+        AnimatedVisibility(visible = text.isNotBlank()) {
+            IconButton(
+                onClick = { 
+                    onSubmit(text)
+                    text = "" // Clear the input after sending
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Send, 
+                    contentDescription = "Send to Brain Engine",
+                    tint = PrimaryColor
+                )
+            }
+        }
+
         IconButton(onClick = onClose) {
             Icon(Icons.Default.Close, contentDescription = "Close", tint = OnSurfaceVariant)
         }
