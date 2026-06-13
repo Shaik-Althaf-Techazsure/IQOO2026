@@ -4,22 +4,44 @@ import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 class LearnFlowEngine(private val context: Context) {
 
     private var llmInference: LlmInference? = null
 
     init {
-        // Step 1: Map configuration options to target our offline model file asset folder path
+        val modelFileName = "gemma.task"
+        val modelFile = File(context.filesDir, modelFileName)
+
+        if (!modelFile.exists()) {
+            try {
+                context.assets.open(modelFileName).use { inputStream ->
+                    FileOutputStream(modelFile).use { outputStream ->
+                        inputStream.copyTo(outputStream)
+                    }
+                }
+                println("[SUCCESS LOG] Model copied to internal storage: ${modelFile.absolutePath}")
+            } catch (e: Exception) {
+                println("[ERROR EXCEPTION] Failed to copy model from assets: ${e.message}")
+            }
+        }
+
+        // Step 1: Map configuration options to target our offline model file path
         val options = LlmInference.LlmInferenceOptions.builder()
-            .setModelPath("/assets/gemma.task") // Points directly to your local assets block
+            .setModelPath(modelFile.absolutePath)
             .setMaxTokens(1024)
             .build()
 
         // Step 2: Instantiate the localized engine straight onto the smartphone processor
         try {
-            llmInference = LlmInference.createFromOptions(context, options)
-            println("[SUCCESS LOG] Native Mobile AI Task Engine Initialized Successfully.")
+            if (modelFile.exists()) {
+                llmInference = LlmInference.createFromOptions(context, options)
+                println("[SUCCESS LOG] Native Mobile AI Task Engine Initialized Successfully.")
+            } else {
+                println("[ERROR] Model file not found even after copy attempt.")
+            }
         } catch (e: Exception) {
             println("[ERROR EXCEPTION] Native compilation failure: ${e.message}")
         }
