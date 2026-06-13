@@ -1,6 +1,7 @@
 package com.techazsure.leanflow.ui
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.techazsure.leanflow.LearnFlowEngine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,6 +65,16 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
             } finally {
                 _isProcessing.value = false
             }
+        }
+    }
+
+    class Factory(private val aiEngine: LearnFlowEngine) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(LearnFlowViewModel::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return LearnFlowViewModel(aiEngine) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
 }

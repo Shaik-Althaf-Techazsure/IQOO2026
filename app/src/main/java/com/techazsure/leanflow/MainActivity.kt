@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -17,30 +18,27 @@ import com.techazsure.leanflow.ui.theme.LeanFlowTheme
 
 class MainActivity : ComponentActivity() {
 
-    private lateinit var aiEngine: LearnFlowEngine
-    private lateinit var cameraEngine: CameraFlowEngine
-    private lateinit var sttEngine: SpeechToTextEngine
+    private val aiEngine by lazy {
+        LearnFlowEngine(applicationContext) { ready, message ->
+            println("[MAIN] Brain Engine Status: $ready - $message")
+            viewModel.setEngineStatus(message)
+        }
+    }
     
-    private lateinit var viewModel: LearnFlowViewModel
+    private val cameraEngine by lazy { CameraFlowEngine(applicationContext) }
+    private val sttEngine by lazy {
+        SpeechToTextEngine(applicationContext) { ready ->
+            println("[MAIN] STT Engine Status: $ready")
+        }
+    }
+    
+    private val viewModel: LearnFlowViewModel by viewModels {
+        LearnFlowViewModel.Factory(aiEngine)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
-        aiEngine = LearnFlowEngine(applicationContext) { ready, message ->
-            println("[MAIN] Brain Engine Status: $ready - $message")
-            if (::viewModel.isInitialized) {
-                viewModel.setEngineStatus(message)
-            }
-        }
-
-        cameraEngine = CameraFlowEngine(applicationContext)
-
-        sttEngine = SpeechToTextEngine(applicationContext) { ready ->
-            println("[MAIN] STT Engine Status: $ready")
-        }
-        
-        viewModel = LearnFlowViewModel(aiEngine)
 
         setContent {
             LeanFlowTheme {
