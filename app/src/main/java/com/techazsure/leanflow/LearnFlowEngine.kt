@@ -2,68 +2,95 @@ package com.techazsure.leanflow
 
 import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
+import com.techazsure.leanflow.ui.ChatMessage
+import com.techazsure.leanflow.ui.ChatRole
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 
-class LearnFlowEngine(private val context: Context) {
+class LearnFlowEngine(private val context: Context, private val onBrainReady: (Boolean, String) -> Unit) {
 
     private var llmInference: LlmInference? = null
 
     init {
-        val modelFileName = "gemma.task"
-        val modelFile = File(context.filesDir, modelFileName)
+        // PERMANENT STORAGE HIGHWAY: Accesses a persistent app folder that survives cleans/rebuilds
+        val safeFolder = context.getExternalFilesDir(null)
+        val modelFile = File(safeFolder, "gemma-2b-quantized.task")
 
-        if (!modelFile.exists()) {
+        if (safeFolder == null || !modelFile.exists()) {
+            println("[WARN] Model file not found in permanent storage folder.")
+            onBrainReady(
+                false,
+                "Notice: Drop 'gemma-2b-quantized.task' inside the path: Device Explorer -> sdcard -> Android -> data -> com.techazsure.leanflow -> files"
+            )
+        } else {
             try {
-                context.assets.open(modelFileName).use { inputStream ->
-                    FileOutputStream(modelFile).use { outputStream ->
-                        inputStream.copyTo(outputStream)
-                    }
-                }
-                println("[SUCCESS LOG] Model copied to internal storage: ${modelFile.absolutePath}")
-            } catch (e: Exception) {
-                println("[ERROR EXCEPTION] Failed to copy model from assets: ${e.message}")
-            }
-        }
+                val options = LlmInference.LlmInferenceOptions.builder()
+                    .setModelPath(modelFile.absolutePath)
+                    .setMaxTokens(1024)
+                    .build()
 
-        // Step 1: Map configuration options to target our offline model file path
-        val options = LlmInference.LlmInferenceOptions.builder()
-            .setModelPath(modelFile.absolutePath)
-            .setMaxTokens(1024)
-            .build()
-
-        // Step 2: Instantiate the localized engine straight onto the smartphone processor
-        try {
-            if (modelFile.exists()) {
                 llmInference = LlmInference.createFromOptions(context, options)
-                println("[SUCCESS LOG] Native Mobile AI Task Engine Initialized Successfully.")
-            } else {
-                println("[ERROR] Model file not found even after copy attempt.")
+                println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
+                onBrainReady(true, "Local AI Brain Engine Connected and Ready!")
+            } catch (e: Exception) {
+                val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
+                println("[ERROR] MediaPipe Initialization Failed: $detailedError")
+                onBrainReady(false, detailedError)
             }
-        } catch (e: Exception) {
-            println("[ERROR EXCEPTION] Native compilation failure: ${e.message}")
         }
     }
 
-    /**
-     * Executes localized asynchronous background inference tasks on device cores.
-     */
-    suspend fun synthesizeActiveRecall(subject: String, lectureBody: String): String? = withContext(Dispatchers.IO) {
-        // Formulating a hard system instruction framework forcing the local 1B model to drop structured JSON arrays
-        val strictSystemPrompt = """
-            You are a local academic assistant. Analyze the input text about '$subject'.
-            Generate exactly one summary paragraph, one flashcard question and answer, and one multiple choice quiz question.
-            Format the entire response as a single, raw JSON block. Do NOT use markdown code blocks or triple backticks.
+    // [AI DEVELOPER INSTRUCTION: CONTEXT COMPILER]
+    // Translates the Kotlin data structures into the exact prompt format required by the local weights.
+    // The format below assumes a generic ChatML syntax. Adjust the tags (e.g., <|user|>, <|model|>) 
+    // to perfectly match the specific local model you are using (Gemma, Llama, etc.).
+    suspend fun queryWithContext(history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
+        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
+
+        val promptBuilder = StringBuilder()
+
+        // Compile the history into a single contiguous string
+        for (message in history) {
+            when (message.role) {
+                ChatRole.SYSTEM -> promptBuilder.append("<|system|>\n${message.content}\n")
+                ChatRole.USER -> promptBuilder.append("<|user|>\n${message.content}\n")
+                ChatRole.MODEL -> promptBuilder.append("<|model|>\n${message.content}\n")
+            }
+        }
+        
+        // Append the final token to tell the local model it is time to generate text
+        promptBuilder.append("<|model|>\n")
+
+        val finalContext = promptBuilder.toString()
+        println("[BRAIN ENGINE] Executing Inference on Context Size: ${finalContext.length} chars")
+
+        return@withContext try {
+            engine.generateResponse(finalContext)
+        } catch (e: Exception) {
+            "Inference Error: ${e.message}"
+        }
+    }
+
+    @Deprecated("Use queryWithContext for memory support", ReplaceWith("queryWithContext"))
+    suspend fun generateMentorResponse(userInput: String): String = withContext(Dispatchers.IO) {
+        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
+
+        val structuredPrompt = """
+            You are 'LearnFlow', a brilliant multi-disciplinary academic mentor operating entirely offline.
+            Your mandate is to guide the user analytically through engineering, mathematics, science, or business concepts.
             
-            Format Match: {"subject": "$subject", "summary": "...", "flashcards": [{"question": "...", "answer": "..."}], "quizzes": [{"question": "...", "options": ["A","B","C","D"], "correct_index": 0, "explanation": "..."}]}
-            
-            Input Material:
-            $lectureBody
+            CRITICAL INSTRUCTIONS:
+            1. Analyze the user's input: "$userInput"
+            2. Break down any underlying core formulas, laws, or theorems step-by-step.
+            3. Do not just print flat answers; provide an explanatory framework first.
+            4. Explicitly organize your output evaluation into a clean summary.
         """.trimIndent()
 
-        // Execute inference synchronously inside our safe IO thread allocation pool
-        return@withContext llmInference?.generateResponse(strictSystemPrompt)
+        return@withContext try {
+            engine.generateResponse(structuredPrompt)
+        } catch (e: Exception) {
+            "Inference Error: ${e.message}"
+        }
     }
 }

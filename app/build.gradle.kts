@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+
 android {
     namespace = "com.techazsure.leanflow"
     compileSdk = 36
@@ -53,8 +54,9 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+    implementation(libs.play.services.document.scanner)
     implementation(libs.vosk.android)
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    implementation(libs.google.mediapipe.tasks.genai)
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
