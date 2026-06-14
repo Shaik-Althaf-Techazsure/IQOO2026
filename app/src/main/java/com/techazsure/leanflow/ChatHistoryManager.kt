@@ -44,6 +44,8 @@ class ChatHistoryManager(private val context: Context) {
                     msgObj.put("sender", msg.sender)
                     msgObj.put("text", msg.text)
                     msgObj.put("timestamp", msg.timestamp)
+                    if (msg.imageUri != null) msgObj.put("imageUri", msg.imageUri)
+                    if (msg.attachmentType != null) msgObj.put("attachmentType", msg.attachmentType)
                     messagesArray.put(msgObj)
                 }
                 threadObj.put("messages", messagesArray)
@@ -74,15 +76,15 @@ class ChatHistoryManager(private val context: Context) {
                     thread.messages.add(ChatMessage(
                         sender = msgObj.getString("sender"),
                         text = msgObj.getString("text"),
-                        timestamp = msgObj.getLong("timestamp")
+                        timestamp = msgObj.getLong("timestamp"),
+                        imageUri = msgObj.optString("imageUri").takeIf { it.isNotEmpty() },
+                        attachmentType = msgObj.optString("attachmentType").takeIf { it.isNotEmpty() }
                     ))
                 }
                 allThreads.add(thread)
             }
-            // Resume the most recent thread if available
-            if (allThreads.isNotEmpty()) {
-                currentActiveThread.value = allThreads.first()
-            }
+            // Always open a fresh new chat on startup instead of resuming the previous one
+            createNewThread()
         } catch (e: Exception) {
             println("[ERROR] Failed to load history: ${e.message}")
         }
@@ -116,7 +118,12 @@ class ChatHistoryManager(private val context: Context) {
     /**
      * Saves a message packet to the active tracking thread and auto-updates titles contextually
      */
-    fun saveMessageToCurrentThread(sender: String, rawText: String) {
+    fun saveMessageToCurrentThread(
+        sender: String,
+        rawText: String,
+        imageUri: String? = null,
+        attachmentType: String? = null
+    ) {
         val cleanText = rawText.trim()
 
         var thread = currentActiveThread.value
@@ -124,7 +131,12 @@ class ChatHistoryManager(private val context: Context) {
             thread = createNewThread()
         }
 
-        thread.messages.add(ChatMessage(sender, cleanText))
+        thread.messages.add(ChatMessage(
+            sender = sender,
+            text = cleanText,
+            imageUri = imageUri,
+            attachmentType = attachmentType
+        ))
 
         if (thread.title == "New Conversation" && sender == "USER") {
             val words = cleanText.split(" ")
@@ -132,7 +144,7 @@ class ChatHistoryManager(private val context: Context) {
         }
 
         saveHistory()
-        
+
         // Refresh UI state
         val current = currentActiveThread.value
         currentActiveThread.value = null

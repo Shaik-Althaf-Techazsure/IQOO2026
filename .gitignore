@@ -16,3 +16,4 @@ local.properties
 
 # MediaPipe Large Language Models
 *.task
+gemma-2n-quantized.task

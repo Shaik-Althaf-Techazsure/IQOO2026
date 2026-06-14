@@ -37,6 +37,9 @@ android {
     buildFeatures {
         compose = true
     }
+    androidResources {
+        noCompress.add("task")
+    }
 }
 
 dependencies {
@@ -58,6 +61,7 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
     implementation(libs.vosk.android)
     implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    implementation("io.coil-kt:coil-compose:2.6.0")
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

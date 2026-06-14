@@ -16,8 +16,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import com.techazsure.leanflow.speech.VoiceCommandEngine
 import com.techazsure.leanflow.ui.LearnflowlyScreen
+import com.techazsure.leanflow.ui.LearnFlowViewModel
 import com.techazsure.leanflow.ui.theme.LeanFlowTheme
 import com.techazsure.leanflow.visual.PhotoParser
 import com.techazsure.leanflow.visual.PhotoUploadParser
@@ -26,12 +28,14 @@ import com.techazsure.leanflow.visual.VideoParser
 class MainActivity : ComponentActivity() {
 
     private lateinit var cameraEngine: CameraFlowEngine
+    private lateinit var learnFlowEngine: LearnFlowEngine
     private lateinit var brainEngine: BrainEngine
     private lateinit var sttEngine: SpeechToTextEngine
     private lateinit var voiceCommandEngine: VoiceCommandEngine
     private lateinit var photoParser: PhotoParser
     private lateinit var photoUploadParser: PhotoUploadParser
     private lateinit var videoParser: VideoParser
+    private lateinit var viewModel: LearnFlowViewModel
 
     private var isBrainReady by mutableStateOf(false)
     private var isSttReady by mutableStateOf(false)
@@ -72,6 +76,7 @@ class MainActivity : ComponentActivity() {
                     if (arePermissionsGranted && ::voiceCommandEngine.isInitialized) {
                         // Pass exactly what Akthar's frontend layout signature expects
                         LearnflowlyScreen(
+                            viewModel = viewModel,
                             cameraEngine = cameraEngine,
                             voiceCommandEngine = voiceCommandEngine,
                             photoParser = photoParser,
@@ -111,10 +116,12 @@ class MainActivity : ComponentActivity() {
         // Maps the current Activity instance to bypass overlay window canvas rendering bugs
         cameraEngine = CameraFlowEngine(this)
 
-        brainEngine = BrainEngine(this) { ready, message ->
+        learnFlowEngine = LearnFlowEngine(this) { ready, message ->
             isBrainReady = ready
-            println("[MAIN] Brain Engine Status: $ready - $message")
+            println("[MAIN] LearnFlow Engine Status: $ready - $message")
         }
+
+        brainEngine = BrainEngine(learnFlowEngine)
 
         sttEngine = SpeechToTextEngine(this) { ready ->
             isSttReady = ready
@@ -136,6 +143,9 @@ class MainActivity : ComponentActivity() {
             chatHistoryManager = chatHistoryManager,
             scope = lifecycleScope
         )
+
+        val factory = LearnFlowViewModel.Factory(learnFlowEngine)
+        viewModel = ViewModelProvider(this, factory)[LearnFlowViewModel::class.java]
     }
 
     override fun onDestroy() {

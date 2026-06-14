@@ -4,6 +4,22 @@ import android.net.Uri
 import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
+import android.graphics.Bitmap
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.automirrored.filled.TextSnippet
+import androidx.compose.material.icons.rounded.Psychology
+import androidx.compose.material.icons.rounded.SportsEsports
+import androidx.compose.material.icons.rounded.Terminal
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanner
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+import java.io.File
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -48,6 +64,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.techazsure.leanflow.*
 import com.techazsure.leanflow.speech.VoiceCommandEngine
 import com.techazsure.leanflow.visual.PhotoParser
@@ -68,12 +86,13 @@ val PrimaryContainer = Color(0xFF6063EE)
 val OnSurface = Color(0xFF0B1C30)
 val OnSurfaceVariant = Color(0xFF464554)
 
-enum class InteractionState { IDLE, TEXT, VOICE, VIDEO, LIVE_CHAT }
+enum class InteractionState { IDLE, TEXT, VOICE, VIDEO, LIVE_CHAT, TESTING_HUB }
 enum class CameraMode { VIDEO_RECORD, SCAN_TEXT, SCAN_IMAGE }
 enum class ChatRole { USER, ASSISTANT }
 
 @Composable
 fun LearnflowlyScreen(
+    viewModel: LearnFlowViewModel? = null,
     cameraEngine: CameraFlowEngine? = null,
     voiceCommandEngine: VoiceCommandEngine? = null,
     photoParser: PhotoParser? = null,
@@ -87,18 +106,34 @@ fun LearnflowlyScreen(
     var cameraMode by remember { mutableStateOf(CameraMode.VIDEO_RECORD) }
 
     // 🔥 FIXED: Launcher moved to main scope to prevent CoroutineScope lifecycle bugs
+    val uploadContext = LocalContext.current
     val fileUploadLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         uri?.let { selectedUri ->
             coroutineScope.launch {
+                // Detect attachment type from MIME via ContentResolver
+                val resolvedMime = uploadContext.contentResolver.getType(selectedUri) ?: ""
+                val attachmentType = when {
+                    resolvedMime.startsWith("image/") -> "image"
+                    resolvedMime.startsWith("video/") -> "video"
+                    else -> "document"
+                }
+
+                // Show the attachment in chat immediately before analysis
+                voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread(
+                    sender = "USER",
+                    rawText = "Analyzing ${selectedUri.lastPathSegment ?: "file"}...",
+                    imageUri = selectedUri.toString(),
+                    attachmentType = attachmentType
+                )
+
                 voiceCommandEngine?.aiResponseText?.value = "Extracting multi-modal context..."
                 val response = photoUploadParser?.parseUploadedFile(
                     fileUri = selectedUri,
                     userPrompt = "Deconstruct and paraphrase the content of this file asset."
                 ) ?: "Offline Upload Parser unavailable."
 
-                voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("USER", "Uploaded Asset: ${selectedUri.lastPathSegment}")
                 voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("AI", response)
                 voiceCommandEngine?.speakOut(response)
                 interactionState = InteractionState.IDLE
@@ -253,6 +288,14 @@ fun LearnflowlyScreen(
                 )
             }
 
+            // 6.5 Testing Hub Overlay
+            if (interactionState == InteractionState.TESTING_HUB) {
+                TestingZoneOverlay(
+                    onClose = { interactionState = InteractionState.IDLE },
+                    onSubmitPrompt = { voiceCommandEngine?.handleTypedPrompt(it) }
+                )
+            }
+
             // 7. Live Chat Viewport
             if (interactionState == InteractionState.LIVE_CHAT) {
                 var isRecording by remember { mutableStateOf(false) }
@@ -365,17 +408,113 @@ fun ChatBubble(message: ChatMessage) {
     val alignment = if (isUser) Alignment.End else Alignment.Start
     val bgColor = if (isUser) PrimaryColor else SecondaryContainer
     val textColor = if (isUser) Color.White else OnSurface
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = alignment
     ) {
+        // --- Media Preview Container ---
+        if (isUser && message.imageUri != null) {
+            val uri = Uri.parse(message.imageUri)
+            Box(
+                modifier = Modifier
+                    .widthIn(max = 220.dp)
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp))
+                    .background(Color(0xFF2A2C6A))
+                    .padding(4.dp)
+            ) {
+                when (message.attachmentType) {
+                    "image" -> {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(uri)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Uploaded image",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 80.dp, max = 180.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    }
+                    "video" -> {
+                        // Video: show thumbnail via coil (coil handles video frames) with a play icon overlay
+                        Box {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(uri)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Video thumbnail",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 80.dp, max = 180.dp)
+                                    .clip(RoundedCornerShape(12.dp)),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.55f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.PlayArrow,
+                                    contentDescription = "Play video",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                    }
+                    else -> {
+                        // Document / unknown file
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF4648D4)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Description,
+                                    contentDescription = "Document",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                            Text(
+                                text = uri.lastPathSegment ?: "Document",
+                                color = Color.White,
+                                fontSize = 12.sp,
+                                maxLines = 2,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+        }
+
+        // --- Text Bubble ---
         Box(
             modifier = Modifier
                 .widthIn(max = 280.dp)
                 .clip(RoundedCornerShape(
                     topStart = 16.dp,
-                    topEnd = 16.dp,
+                    topEnd = if (isUser && message.imageUri != null) 0.dp else 16.dp,
                     bottomStart = if (isUser) 16.dp else 4.dp,
                     bottomEnd = if (isUser) 4.dp else 16.dp
                 ))
@@ -612,6 +751,8 @@ fun BottomInteractionZone(
                                 onStateChange(InteractionState.IDLE)
                             } else if (offsetX > 150f && abs(offsetX) > abs(offsetY)) {
                                 onStateChange(InteractionState.VIDEO)
+                            } else if (offsetX < -150f && abs(offsetX) > abs(offsetY)) {
+                                onStateChange(InteractionState.TESTING_HUB)
                             }
                             offsetX = 0f
                             offsetY = 0f
@@ -713,6 +854,12 @@ fun VoiceDot(delayMillis: Int) {
     )
 }
 
+data class MediaAction(
+    val title: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit
+)
+
 @Composable
 fun VideoOverlay(
     photoParser: PhotoParser?,
@@ -724,6 +871,71 @@ fun VideoOverlay(
     onStartLiveStream: () -> Unit = {},
     onModeSelect: (CameraMode) -> Unit
 ) {
+    val context = LocalContext.current
+    
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri -> }
+
+    val textUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> }
+
+    val takePhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap -> }
+
+    val scannerOptions = GmsDocumentScannerOptions.Builder()
+        .setGalleryImportAllowed(true)
+        .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG, GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+        .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+        .build()
+    val scanner = GmsDocumentScanning.getClient(scannerOptions)
+    
+    val scanLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result -> }
+
+    val scanTextOcrLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap -> }
+    
+    val actions = listOf(
+        MediaAction("Upload\nPhoto", Icons.Default.Image) {
+            mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        MediaAction("Upload\nVideo", Icons.Default.VideoFile) {
+            mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+        },
+        MediaAction("Upload\nText", Icons.Default.Description) {
+            textUploadLauncher.launch(arrayOf("text/plain"))
+        },
+        MediaAction("Capture\nPhoto", Icons.Default.CameraAlt) {
+            takePhotoLauncher.launch(null)
+        },
+        MediaAction("Scan\nImage (PDF)", Icons.Default.DocumentScanner) {
+            scanner.getStartScanIntent((context as Activity))
+                .addOnSuccessListener { 
+                    scanLauncher.launch(IntentSenderRequest.Builder(it).build()) 
+                }
+        },
+        MediaAction("Scan\nText (OCR)", Icons.AutoMirrored.Filled.TextSnippet) {
+            scanTextOcrLauncher.launch(null)
+        },
+        MediaAction("Live Video\nChat", Icons.Default.VideoCall) {
+            onModeSelect(CameraMode.VIDEO_RECORD)
+            onStartLiveStream()
+        },
+        MediaAction("Live Scan\nText", Icons.Default.TextFields) {
+            onModeSelect(CameraMode.SCAN_TEXT)
+            onStartLiveStream()
+        },
+        MediaAction("Live Scan\nImage", Icons.Default.FilterFrames) {
+            onModeSelect(CameraMode.SCAN_IMAGE)
+            onStartLiveStream()
+        }
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -755,51 +967,19 @@ fun VideoOverlay(
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp)
             )
 
-            Row(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Videocam,
-                    title = "Live Stream",
-                    onClick = { 
-                        onModeSelect(CameraMode.VIDEO_RECORD)
-                        onStartLiveStream() 
-                    }
-                )
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Image,
-                    title = "Scan Text",
-                    onClick = {
-                        onModeSelect(CameraMode.SCAN_TEXT)
-                        onStartLiveStream()
-                    }
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.CameraAlt,
-                    title = "Scan Image",
-                    onClick = {
-                        onModeSelect(CameraMode.SCAN_IMAGE)
-                        onStartLiveStream()
-                    }
-                )
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.VideoFile,
-                    title = "Upload\nFile",
-                    onClick = { fileUploadLauncher.launch("*/*") }
-                )
+                items(actions) { action ->
+                    MediaCard(
+                        icon = action.icon,
+                        title = action.title,
+                        onClick = action.onClick
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(48.dp))
@@ -914,3 +1094,150 @@ fun ParticleSwarm(modifier: Modifier = Modifier, particleColor: Color) {
         }
     }
 }
+
+@Composable
+fun TestingZoneOverlay(
+    onClose: () -> Unit,
+    onSubmitPrompt: (String) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.95f))
+            .padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth(0.9f)
+        ) {
+            Icon(
+                imageVector = Icons.Default.SportsEsports,
+                contentDescription = "Test & Practice",
+                tint = PrimaryContainer,
+                modifier = Modifier.size(56.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = "TEST YOUR CONCEPTS",
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp
+            )
+            Text(
+                text = "Challenge your understanding with tailored content from your chat",
+                color = Color.White.copy(alpha = 0.6f),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp, bottom = 40.dp)
+            )
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                TestingConceptCard(
+                    icon = Icons.Default.Psychology,
+                    title = "Quiz from the Chat",
+                    description = "Take a dynamic quiz compiled directly from your recent conversation.",
+                    accentColor = Color(0xFF4F46E5),
+                    onClick = { 
+                        onSubmitPrompt("Please generate a short quiz based on the concepts we've discussed so far.")
+                        onClose()
+                    }
+                )
+                TestingConceptCard(
+                    icon = Icons.Default.SportsEsports,
+                    title = "Educational Games",
+                    description = "Play matching games and puzzles based on learned terms.",
+                    accentColor = Color(0xFF10B981),
+                    onClick = { 
+                        onSubmitPrompt("Let's play an educational text-based game to test my knowledge of the recent topics.")
+                        onClose()
+                    }
+                )
+                TestingConceptCard(
+                    icon = Icons.Default.Terminal,
+                    title = "Code Playground",
+                    description = "Solve code exercises and compile snippets on chat topics.",
+                    accentColor = Color(0xFFF59E0B),
+                    onClick = { 
+                        onSubmitPrompt("Give me a practical coding exercise to apply the concepts we just talked about.")
+                        onClose()
+                    }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(40.dp))
+            
+            Button(
+                onClick = onClose,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.15f)),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.width(150.dp)
+            ) {
+                Text("Back to Chat", color = Color.White, fontWeight = FontWeight.Medium)
+            }
+        }
+    }
+}
+
+@Composable
+fun TestingConceptCard(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(20.dp)),
+        colors = CardDefaults.cardColors(
+            containerColor = Color.White.copy(alpha = 0.15f)
+        ),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(accentColor.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = accentColor,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = description,
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
+

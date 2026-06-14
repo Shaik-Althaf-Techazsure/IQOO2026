@@ -4,7 +4,9 @@ package com.techazsure.leanflow
 data class ChatMessage(
     val sender: String, // "USER", "SYSTEM", or "AI"
     val text: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val imageUri: String? = null,         // Uri string for image/video thumbnail preview
+    val attachmentType: String? = null    // "image", "video", "document", or null
 )
 
 /**

@@ -19,7 +19,7 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
         val modelName = "gemma-2n-quantized.task"
         val modelFile = File(context.filesDir, modelName)
 
-        if (!modelFile.exists() || modelFile.length() < 100 * 1024 * 1024) {
+        if (!modelFile.exists() || modelFile.length() < 2000L * 1024 * 1024) {
             if (!copyModelFromAssets(modelName, modelFile)) {
                 withContext(Dispatchers.Main) { onBrainReady(false, "Model file error.") }
                 return
