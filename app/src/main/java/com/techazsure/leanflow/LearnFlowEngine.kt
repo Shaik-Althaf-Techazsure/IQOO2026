@@ -4,53 +4,88 @@ import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.techazsure.leanflow.ui.ChatMessage
 import com.techazsure.leanflow.ui.ChatRole
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileOutputStream
 
 class LearnFlowEngine(private val context: Context, private val onBrainReady: (Boolean, String) -> Unit) {
 
     private var llmInference: LlmInference? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     init {
-        // PERMANENT STORAGE HIGHWAY: Accesses a persistent app folder that survives cleans/rebuilds
-        val safeFolder = context.getExternalFilesDir(null)
-        val modelFile = File(safeFolder, "gemma-2b-quantized.task")
+        scope.launch {
+            initializeEngine()
+        }
+    }
 
-        if (safeFolder == null || !modelFile.exists()) {
-            println("[WARN] Model file not found in permanent storage folder.")
-            onBrainReady(
-                false,
-                "Notice: Drop 'gemma-2b-quantized.task' inside the path: Device Explorer -> sdcard -> Android -> data -> com.techazsure.leanflow -> files"
-            )
-        } else {
-            try {
-                val options = LlmInference.LlmInferenceOptions.builder()
-                    .setModelPath(modelFile.absolutePath)
-                    .setMaxTokens(1024)
-                    .build()
+    private suspend fun initializeEngine() {
+        // Updated name to match the logs and common MediaPipe naming
+        val modelName = "gemma-2b-quantized.task"
+        val modelFile = File(context.filesDir, modelName)
 
-                llmInference = LlmInference.createFromOptions(context, options)
-                println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
+        // 1. AUTO-DEPLOYMENT: Check if the model exists in internal storage
+        if (!modelFile.exists()) {
+            println("[INFO] Model not found in internal storage. Attempting to copy from assets...")
+            val success = copyModelFromAssets(modelName, modelFile)
+            if (!success) {
+                // Fallback attempt: The user might have named it gemma.task in assets
+                val retrySuccess = copyModelFromAssets("gemma.task", modelFile)
+                if (!retrySuccess) {
+                    withContext(Dispatchers.Main) {
+                        onBrainReady(false, "Failed to copy model from assets. Please ensure $modelName is in the assets folder.")
+                    }
+                    return
+                }
+            }
+        }
+
+        // 2. INITIALIZATION: Create the MediaPipe Inference engine
+        try {
+            val options = LlmInference.LlmInferenceOptions.builder()
+                .setModelPath(modelFile.absolutePath)
+                .setMaxTokens(512) // Slightly reduced for better mobile responsiveness
+                .build()
+
+            llmInference = LlmInference.createFromOptions(context, options)
+            println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
+            withContext(Dispatchers.Main) {
                 onBrainReady(true, "Local AI Brain Engine Connected and Ready!")
-            } catch (e: Exception) {
-                val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
-                println("[ERROR] MediaPipe Initialization Failed: $detailedError")
+            }
+        } catch (e: Exception) {
+            val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
+            println("[ERROR] MediaPipe Initialization Failed: $detailedError")
+            withContext(Dispatchers.Main) {
                 onBrainReady(false, detailedError)
             }
         }
     }
 
-    // [AI DEVELOPER INSTRUCTION: CONTEXT COMPILER]
-    // Translates the Kotlin data structures into the exact prompt format required by the local weights.
-    // The format below assumes a generic ChatML syntax. Adjust the tags (e.g., <|user|>, <|model|>) 
-    // to perfectly match the specific local model you are using (Gemma, Llama, etc.).
+    private fun copyModelFromAssets(assetName: String, targetFile: File): Boolean {
+        return try {
+            context.assets.open(assetName).use { inputStream ->
+                FileOutputStream(targetFile).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            println("[SUCCESS] Model copied from assets ($assetName) to: ${targetFile.absolutePath}")
+            true
+        } catch (e: Exception) {
+            println("[ERROR] Failed to copy model ($assetName) from assets: ${e.message}")
+            false
+        }
+    }
+
     suspend fun queryWithContext(history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
-        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
+        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized. Please ensure the model is copied and the engine is ready."
 
         val promptBuilder = StringBuilder()
 
-        // Compile the history into a single contiguous string
+        // Compile history into ChatML format
         for (message in history) {
             when (message.role) {
                 ChatRole.SYSTEM -> promptBuilder.append("<|system|>\n${message.content}\n")
@@ -59,36 +94,13 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
             }
         }
         
-        // Append the final token to tell the local model it is time to generate text
         promptBuilder.append("<|model|>\n")
 
         val finalContext = promptBuilder.toString()
-        println("[BRAIN ENGINE] Executing Inference on Context Size: ${finalContext.length} chars")
+        println("[BRAIN ENGINE] Executing Inference. Context length: ${finalContext.length}")
 
         return@withContext try {
             engine.generateResponse(finalContext)
-        } catch (e: Exception) {
-            "Inference Error: ${e.message}"
-        }
-    }
-
-    @Deprecated("Use queryWithContext for memory support", ReplaceWith("queryWithContext"))
-    suspend fun generateMentorResponse(userInput: String): String = withContext(Dispatchers.IO) {
-        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
-
-        val structuredPrompt = """
-            You are 'LearnFlow', a brilliant multi-disciplinary academic mentor operating entirely offline.
-            Your mandate is to guide the user analytically through engineering, mathematics, science, or business concepts.
-            
-            CRITICAL INSTRUCTIONS:
-            1. Analyze the user's input: "$userInput"
-            2. Break down any underlying core formulas, laws, or theorems step-by-step.
-            3. Do not just print flat answers; provide an explanatory framework first.
-            4. Explicitly organize your output evaluation into a clean summary.
-        """.trimIndent()
-
-        return@withContext try {
-            engine.generateResponse(structuredPrompt)
         } catch (e: Exception) {
             "Inference Error: ${e.message}"
         }

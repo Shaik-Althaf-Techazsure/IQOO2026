@@ -1,6 +1,7 @@
 package com.techazsure.leanflow.ui
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.techazsure.leanflow.LearnFlowEngine
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,9 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
+    private val _engineStatus = MutableStateFlow<String?>(null)
+    val engineStatus: StateFlow<String?> = _engineStatus.asStateFlow()
+
     init {
         // Inject the initial system persona into the memory
         _chatHistory.value = listOf(
@@ -28,6 +32,10 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
                 content = "You are Learnflowly, a highly advanced, concise, and helpful AI educational assistant running locally on a mobile device."
             )
         )
+    }
+    
+    fun setEngineStatus(message: String) {
+        _engineStatus.value = message
     }
 
     fun submitPrompt(userText: String) {
@@ -57,6 +65,16 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
             } finally {
                 _isProcessing.value = false
             }
+        }
+    }
+
+    class Factory(private val aiEngine: LearnFlowEngine) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(LearnFlowViewModel::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return LearnFlowViewModel(aiEngine) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
         }
     }
 }

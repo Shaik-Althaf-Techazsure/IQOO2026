@@ -11,17 +11,17 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.lifecycle.lifecycleScope // Explicitly imported to map coroutine execution bounds
-import com.techazsure.leanflow.speech.VoiceCommandEngine
+import com.techazsure.leanflow.ui.LearnFlowViewModel
 import com.techazsure.leanflow.ui.LearnflowlyScreen
 import com.techazsure.leanflow.ui.theme.LeanFlowTheme
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var aiEngine: LearnFlowEngine
     private lateinit var cameraEngine: CameraFlowEngine
-    private lateinit var brainEngine: BrainEngine
     private lateinit var sttEngine: SpeechToTextEngine
-    private lateinit var voiceCommandEngine: VoiceCommandEngine
+    
+    private lateinit var viewModel: LearnFlowViewModel
 
     private var isBrainReady by mutableStateOf(false)
     private var isSttReady by mutableStateOf(false)
@@ -30,22 +30,19 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 1. Initialize general hardware infrastructure
-        cameraEngine = CameraFlowEngine(applicationContext)
-
-        // 2. Map backend engines with responsive callbacks
-        brainEngine = BrainEngine(this) { ready, message ->
+        aiEngine = LearnFlowEngine(applicationContext) { ready, message ->
             isBrainReady = ready
             println("[MAIN] Brain Engine Status: $ready - $message")
         }
 
-        sttEngine = SpeechToTextEngine(this) { ready ->
+        cameraEngine = CameraFlowEngine(applicationContext)
+
+        sttEngine = SpeechToTextEngine(applicationContext) { ready ->
             isSttReady = ready
             println("[MAIN] STT Engine Status: $ready")
         }
-
-        // 3. Bind engines to the standalone scope controller
-        voiceCommandEngine = VoiceCommandEngine(this, brainEngine, sttEngine, lifecycleScope)
+        
+        viewModel = LearnFlowViewModel(aiEngine)
 
         setContent {
             LeanFlowTheme {
@@ -53,10 +50,10 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // Properly matches the updated parameters in Akthar's screen declaration
                     LearnflowlyScreen(
+                        viewModel = viewModel,
                         cameraEngine = cameraEngine,
-                        voiceCommandEngine = voiceCommandEngine
+                        sttEngine = sttEngine
                     )
                 }
             }
