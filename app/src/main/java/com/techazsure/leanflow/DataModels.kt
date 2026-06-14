@@ -10,10 +10,10 @@ object ChatRole {
 
 // This is the ONE definition for your entire app
 data class ChatMessage(
-    val id: String = UUID.randomUUID().toString(),
     val sender: String, // "USER", "SYSTEM", or "AI"
     val text: String,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val id: String = UUID.randomUUID().toString()
 ) {
     // Compatibility properties for different code styles in the project
     val role: String get() = sender
