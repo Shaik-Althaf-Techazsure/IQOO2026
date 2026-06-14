@@ -1,8 +1,12 @@
 package com.techazsure.leanflow.ui
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.techazsure.leanflow.ContextExtractor
 import com.techazsure.leanflow.LearnFlowEngine
 import com.techazsure.leanflow.ChatMessage // IMPORT THE SHARED MODEL
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -60,6 +64,59 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
                 )
             } finally {
                 _isProcessing.value = false
+            }
+        }
+    }
+
+    // Handles standard files, documents, and videos
+    fun ingestContextFromUri(context: Context, uri: Uri, fileType: String) {
+        viewModelScope.launch {
+            // 1. Give the user visual feedback that the file was attached
+            val attachmentMessage = ChatMessage(
+                role = ChatRole.USER, 
+                content = "[Attached $fileType]"
+            )
+            _chatHistory.value = _chatHistory.value + attachmentMessage
+
+            // 2. Extract data (This happens in the background)
+            try {
+                // [AI DEVELOPER NOTE] ContextExtractor must be implemented to handle URI data extraction
+                val extractedData = ContextExtractor.extractTextFromUri(context, uri)
+                
+                // 3. Silently feed this to the Brain Engine as system context
+                val contextInjection = ChatMessage(
+                    role = ChatRole.SYSTEM,
+                    content = "Context Update from user's attached file: $extractedData"
+                )
+                _chatHistory.value = _chatHistory.value + contextInjection
+                
+            } catch (e: Exception) {
+                println("[INGESTION ERROR] Failed to read URI: ${e.message}")
+            }
+        }
+    }
+
+    // Handles immediate Camera captures and OCR
+    fun ingestContextFromBitmap(bitmap: Bitmap, isOcrTarget: Boolean = false) {
+        viewModelScope.launch {
+            val attachmentMessage = ChatMessage(
+                role = ChatRole.USER, 
+                content = if (isOcrTarget) "[Scanning Text from Image...]" else "[Captured Photo]"
+            )
+            _chatHistory.value = _chatHistory.value + attachmentMessage
+
+            if (isOcrTarget) {
+                // [AI DEVELOPER NOTE] ContextExtractor must be implemented to handle ML Kit OCR
+                ContextExtractor.extractTextWithMLKit(bitmap) { extractedText ->
+                    val ocrResult = ChatMessage(
+                        role = ChatRole.SYSTEM,
+                        content = "Extracted Text from Image: $extractedText"
+                    )
+                    _chatHistory.value = _chatHistory.value + ocrResult
+                }
+            } else {
+                // For multimodal local LLMs, you would pass the raw bitmap here.
+                println("[INGESTION] Raw image saved to memory for multimodal processing.")
             }
         }
     }

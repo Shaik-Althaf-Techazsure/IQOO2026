@@ -53,6 +53,11 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
+<<<<<<< HEAD
+=======
+    implementation(libs.play.services.document.scanner)
+    implementation(libs.mlkit.text.recognition)
+>>>>>>> 61197a2021ccce920eda9a56be18d2b9177b6761
     implementation(libs.vosk.android)
     implementation("com.google.mediapipe:tasks-genai:0.10.27")
     implementation(libs.androidx.material3)

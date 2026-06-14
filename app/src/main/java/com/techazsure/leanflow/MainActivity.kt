@@ -51,6 +51,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        println("[DEBUG_LIFECYCLE] MainActivity onCreate triggered!")
         enableEdgeToEdge()
 
         // Explicitly check or request permissions right on app launch
