@@ -2,13 +2,7 @@ package com.techazsure.leanflow
 
 import android.content.Context
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.techazsure.leanflow.ui.ChatMessage
-import com.techazsure.leanflow.ui.ChatRole
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import java.io.File
 import java.io.FileOutputStream
 
@@ -18,91 +12,71 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     init {
-        scope.launch {
-            initializeEngine()
-        }
+        scope.launch { initializeEngine() }
     }
 
     private suspend fun initializeEngine() {
-        // Updated name to match the logs and common MediaPipe naming
         val modelName = "gemma-2b-quantized.task"
         val modelFile = File(context.filesDir, modelName)
 
-        // 1. AUTO-DEPLOYMENT: Check if the model exists in internal storage
-        if (!modelFile.exists()) {
-            println("[INFO] Model not found in internal storage. Attempting to copy from assets...")
-            val success = copyModelFromAssets(modelName, modelFile)
-            if (!success) {
-                // Fallback attempt: The user might have named it gemma.task in assets
-                val retrySuccess = copyModelFromAssets("gemma.task", modelFile)
-                if (!retrySuccess) {
-                    withContext(Dispatchers.Main) {
-                        onBrainReady(false, "Failed to copy model from assets. Please ensure $modelName is in the assets folder.")
-                    }
-                    return
-                }
+        if (!modelFile.exists() || modelFile.length() < 100 * 1024 * 1024) {
+            if (!copyModelFromAssets(modelName, modelFile)) {
+                withContext(Dispatchers.Main) { onBrainReady(false, "Model file error.") }
+                return
             }
         }
 
-        // 2. INITIALIZATION: Create the MediaPipe Inference engine
         try {
+            // Stateless Initialization
             val options = LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(modelFile.absolutePath)
-                .setMaxTokens(512) // Slightly reduced for better mobile responsiveness
+                .setMaxTokens(1024)
                 .build()
 
             llmInference = LlmInference.createFromOptions(context, options)
-            println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
-            withContext(Dispatchers.Main) {
-                onBrainReady(true, "Local AI Brain Engine Connected and Ready!")
-            }
+
+            withContext(Dispatchers.Main) { onBrainReady(true, "AI Engine Ready!") }
         } catch (e: Exception) {
-            val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
-            println("[ERROR] MediaPipe Initialization Failed: $detailedError")
-            withContext(Dispatchers.Main) {
-                onBrainReady(false, detailedError)
+            withContext(Dispatchers.Main) { onBrainReady(false, "Init Failure: ${e.message}") }
+        }
+    }
+
+    /**
+     * STREAMING INFERENCE: Sends the full history context as a single prompt
+     * and streams tokens back to the UI.
+     */
+    fun streamResponse(history: List<ChatMessage>, onTokenGenerated: (String, Boolean) -> Unit) {
+        scope.launch {
+            try {
+                // Build the full context string (Gemma-specific ChatML format)
+                val promptBuilder = StringBuilder()
+                for (message in history) {
+                    val tag = if (message.sender == "USER") "<|user|>" else "<|model|>"
+                    promptBuilder.append("$tag\n${message.text}\n")
+                }
+                promptBuilder.append("<|model|>\n")
+
+                // Generate response asynchronously
+                llmInference?.generateResponseAsync(promptBuilder.toString()) { partialResult, done ->
+                    onTokenGenerated(partialResult, done)
+                }
+            } catch (e: Exception) {
+                onTokenGenerated("Inference Error: ${e.message}", true)
             }
         }
     }
 
     private fun copyModelFromAssets(assetName: String, targetFile: File): Boolean {
         return try {
-            context.assets.open(assetName).use { inputStream ->
-                FileOutputStream(targetFile).use { outputStream ->
-                    inputStream.copyTo(outputStream)
-                }
+            context.assets.open(assetName).use { input ->
+                FileOutputStream(targetFile).use { output -> input.copyTo(output) }
             }
-            println("[SUCCESS] Model copied from assets ($assetName) to: ${targetFile.absolutePath}")
             true
-        } catch (e: Exception) {
-            println("[ERROR] Failed to copy model ($assetName) from assets: ${e.message}")
-            false
-        }
+        } catch (e: Exception) { false }
     }
 
-    suspend fun queryWithContext(history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
-        val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized. Please ensure the model is copied and the engine is ready."
-
-        val promptBuilder = StringBuilder()
-
-        // Compile history into ChatML format
-        for (message in history) {
-            when (message.role) {
-                ChatRole.SYSTEM -> promptBuilder.append("<|system|>\n${message.content}\n")
-                ChatRole.USER -> promptBuilder.append("<|user|>\n${message.content}\n")
-                ChatRole.MODEL -> promptBuilder.append("<|model|>\n${message.content}\n")
-            }
-        }
-        
-        promptBuilder.append("<|model|>\n")
-
-        val finalContext = promptBuilder.toString()
-        println("[BRAIN ENGINE] Executing Inference. Context length: ${finalContext.length}")
-
-        return@withContext try {
-            engine.generateResponse(finalContext)
-        } catch (e: Exception) {
-            "Inference Error: ${e.message}"
-        }
+    fun close() {
+        scope.cancel()
+        llmInference?.close()
     }
 }

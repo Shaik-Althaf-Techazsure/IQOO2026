@@ -1,6 +1,8 @@
 package com.techazsure.leanflow
 
 import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -21,7 +23,6 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
     private var isListening = false
 
     init {
-        // Safe background worker processing layout
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val targetDir = File(context.filesDir, "vosk-model")
@@ -30,7 +31,6 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
                 }
 
                 copyAssetsFolder("vosk-model", targetDir.absolutePath)
-
                 voskModel = Model(targetDir.absolutePath)
 
                 withContext(Dispatchers.Main) {
@@ -46,9 +46,6 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
         }
     }
 
-    /**
-     * Synchronously extracts raw file configurations into internal system space.
-     */
     private fun copyAssetsFolder(assetDir: String, targetDir: String) {
         val assetManager = context.assets
         var files: Array<String>? = null
@@ -91,53 +88,80 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
     suspend fun recordAudioStream(onPartialResult: (String) -> Unit, onFinalResult: (String) -> Unit) = withContext(Dispatchers.IO) {
         val model = voskModel ?: return@withContext println("[WARN] Core model not mounted yet.")
 
+        // 1. Explicitly check if the RECORD_AUDIO permission is currently active in the OS context
+        if (ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            println("[ERROR] Record Audio hardware permission is missing! Aborting voice stream track.")
+            withContext(Dispatchers.Main) {
+                onFinalResult("Hardware Error: Microphone permission not granted. Please enable it in Settings.")
+            }
+            return@withContext
+        }
+
         val sampleRate = 16000
         val channelConfig = AudioFormat.CHANNEL_IN_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat) * 2
 
-        val audioRecord = AudioRecord(
-            MediaRecorder.AudioSource.MIC,
-            sampleRate,
-            channelConfig,
-            audioFormat,
-            bufferSize
-        )
+        // 2. Wrap the initialization and recording invocation block in a defensive hardware try-catch wrapper
+        try {
+            val audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                sampleRate,
+                channelConfig,
+                audioFormat,
+                bufferSize
+            )
 
-        if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
-            println("[ERROR] Direct microphone hardware link failed.")
-            return@withContext
-        }
+            if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
+                println("[ERROR] Direct microphone hardware link failed to initialize.")
+                return@withContext
+            }
 
-        val recognizer = Recognizer(model, sampleRate.toFloat())
-        val buffer = ShortArray(bufferSize)
+            val recognizer = Recognizer(model, sampleRate.toFloat())
+            recognizer.setWords(true) // Keeps the parsing speed fast
+            val buffer = ShortArray(bufferSize)
 
-        audioRecord.startRecording()
-        isListening = true
-        println("[STREAM ACTIVE] Microphones live.")
+            audioRecord.startRecording()
+            isListening = true
+            println("[STREAM ACTIVE] Microphones live.")
 
-        while (isListening) {
-            val readBytes = audioRecord.read(buffer, 0, buffer.size)
-            if (readBytes > 0) {
-                if (recognizer.acceptWaveForm(buffer, readBytes)) {
-                    val text = JSONObject(recognizer.result).optString("text", "")
-                    if (text.isNotEmpty()) {
-                        withContext(Dispatchers.Main) { onFinalResult(text) }
-                    }
-                } else {
-                    val partialText = JSONObject(recognizer.partialResult).optString("partial", "")
-                    if (partialText.isNotEmpty()) {
-                        withContext(Dispatchers.Main) { onPartialResult(partialText) }
+            while (isListening) {
+                val readBytes = audioRecord.read(buffer, 0, buffer.size)
+                if (readBytes > 0) {
+                    if (recognizer.acceptWaveForm(buffer, readBytes)) {
+                        val text = JSONObject(recognizer.result).optString("text", "")
+                        if (text.isNotEmpty()) {
+                            isListening = false
+                            withContext(Dispatchers.Main) { onFinalResult(text) }
+                        }
+                    } else {
+                        val partialText =
+                            JSONObject(recognizer.partialResult).optString("partial", "")
+                        if (partialText.isNotEmpty()) {
+                            withContext(Dispatchers.Main) { onPartialResult(partialText) }
+                        }
                     }
                 }
             }
+
+            audioRecord.stop()
+            audioRecord.release()
+            println("[STREAM INACTIVE] Microphone stream stopped cleanly.")
+
+        } catch (e: SecurityException) {
+            // 🔥 FIXED: Explicitly captures the exception if permission checks slip past the system layout
+            println("[FATAL PERMISSION EXCEPTION] User blocked hardware access stream: ${e.message}")
+            isListening = false
+            withContext(Dispatchers.Main) {
+                onFinalResult("Permission Error: Enable microphone hardware rights.")
+            }
+        } catch (e: Exception) {
+            println("[ERROR] Generic hardware capture failure: ${e.message}")
+            isListening = false
         }
-
-        audioRecord.stop()
-        audioRecord.release()
-    }
-
-    fun stopListening() {
-        isListening = false
     }
 }

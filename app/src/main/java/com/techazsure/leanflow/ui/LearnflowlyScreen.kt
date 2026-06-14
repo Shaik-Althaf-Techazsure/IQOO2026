@@ -1,5 +1,9 @@
 package com.techazsure.leanflow.ui
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -16,23 +20,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.VideoFile
-import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -44,18 +35,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.IntOffset
-import com.techazsure.leanflow.CameraFlowEngine
-import com.techazsure.leanflow.SpeechToTextEngine
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.camera.view.PreviewView
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.techazsure.leanflow.*
+import com.techazsure.leanflow.speech.VoiceCommandEngine
+import com.techazsure.leanflow.visual.PhotoParser
+import com.techazsure.leanflow.visual.PhotoUploadParser
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.cos
@@ -63,7 +54,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
-// --- Theme Colors from DESIGN.md ---
+// --- Mapped Theme Color Palettes ---
 val SurfaceColor = Color(0xFFF8F9FF)
 val PrimaryColor = Color(0xFF4648D4)
 val SecondaryContainer = Color(0xFFDAE2FD)
@@ -72,59 +63,52 @@ val OnSurface = Color(0xFF0B1C30)
 val OnSurfaceVariant = Color(0xFF464554)
 
 enum class InteractionState { IDLE, TEXT, VOICE, VIDEO, LIVE_CHAT }
-
-@Preview(showBackground = true)
-@Composable
-fun LearnflowlyScreenPreview() {
-    LearnflowlyScreen()
-}
+enum class ChatRole { USER, ASSISTANT }
 
 @Composable
 fun LearnflowlyScreen(
-    viewModel: LearnFlowViewModel? = null,
     cameraEngine: CameraFlowEngine? = null,
-    sttEngine: SpeechToTextEngine? = null,
+    voiceCommandEngine: VoiceCommandEngine? = null,
+    photoParser: PhotoParser? = null,
+    photoUploadParser: PhotoUploadParser? = null
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     var interactionState by rememberSaveable { mutableStateOf(InteractionState.IDLE) }
-    
-    // Collect the memory state
-    val chatHistory by viewModel?.chatHistory?.collectAsState() ?: remember { mutableStateOf(emptyList<ChatMessage>()) }
-    val isProcessing by viewModel?.isProcessing?.collectAsState() ?: remember { mutableStateOf(false) }
-    val engineStatus by viewModel?.engineStatus?.collectAsState() ?: remember { mutableStateOf(null) }
-    
-    // Controls auto-scrolling to the latest message
+
+    // 🔥 FIXED: Safe null-chaining and explicit type definition
+    val activeThread = voiceCommandEngine?.chatHistoryManager?.currentActiveThread?.value
+    val messageList: List<ChatMessage> = activeThread?.messages?.map {
+        ChatMessage(if (it.sender == "USER") ChatRole.USER else ChatRole.ASSISTANT, it.text)
+    } ?: emptyList()
+
     val listState = rememberLazyListState()
 
-    // Auto-scroll logic
-    LaunchedEffect(chatHistory.size) {
-        if (chatHistory.isNotEmpty()) {
-            listState.animateScrollToItem(chatHistory.size - 1)
-        }
+    LaunchedEffect(messageList.size) {
+        if (messageList.isNotEmpty()) listState.animateScrollToItem(messageList.size - 1)
     }
 
-    // Handle Voice Mode Transcription
-    LaunchedEffect(interactionState) {
-        if (interactionState == InteractionState.VOICE) {
-            sttEngine?.recordAudioStream(
-                onPartialResult = { /* could display partial in UI if needed */ }
-            ) { final ->
-                viewModel?.submitPrompt(final)
-                interactionState = InteractionState.IDLE
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                Text("Chat History Threads", modifier = Modifier.padding(16.dp))
+                voiceCommandEngine?.chatHistoryManager?.let { ChatHistorySidebar(it) }
             }
-        } else {
-            sttEngine?.stopListening()
         }
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(SurfaceColor)
     ) {
-        // 1. Ambient Background & Central Orb
-        CentralGlowOrb(interactionState)
+        Box(modifier = Modifier.fillMaxSize().background(SurfaceColor)) {
+            CentralGlowOrb(interactionState)
 
+<<<<<<< HEAD
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().padding(top = 80.dp, bottom = 140.dp, start = 16.dp, end = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(messageList) { ChatBubble(it) }
+=======
         // SAFE ZONE WRAPPER: Handles System Bars AND Landscape Camera Notches
         Box(
             modifier = Modifier
@@ -213,9 +197,15 @@ fun LearnflowlyScreen(
                         }
                     )
                 }
+>>>>>>> 61197a2021ccce920eda9a56be18d2b9177b6761
             }
-        }
 
+<<<<<<< HEAD
+            BottomInteractionZone(
+                state = interactionState,
+                onStateChange = { interactionState = it },
+                onSubmitPrompt = { voiceCommandEngine?.handleTypedPrompt(it) }
+=======
         // 6. Video Mode Overlay (Swipe Right)
         if (interactionState == InteractionState.VIDEO) {
             VideoOverlay(
@@ -223,38 +213,28 @@ fun LearnflowlyScreen(
                 onStartLiveStream = {
                     interactionState = InteractionState.LIVE_CHAT
                 }
+>>>>>>> 61197a2021ccce920eda9a56be18d2b9177b6761
             )
-        }
-        
-        // 7. Live Chat Mode Viewport
-        if (interactionState == InteractionState.LIVE_CHAT) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                AndroidView(
-                    factory = { context ->
-                        PreviewView(context).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                    update = { previewView ->
-                        cameraEngine?.startCameraPreview(
-                            lifecycleOwner = lifecycleOwner,
-                            previewView = previewView
-                        )
+
+            if (interactionState == InteractionState.VIDEO) {
+                VideoOverlay(photoParser, photoUploadParser, cameraEngine, voiceCommandEngine, { interactionState = InteractionState.IDLE }, { interactionState = InteractionState.LIVE_CHAT })
+            }
+
+            if (interactionState == InteractionState.LIVE_CHAT) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    AndroidView(
+                        factory = { ctx -> PreviewView(ctx).apply { implementationMode = PreviewView.ImplementationMode.COMPATIBLE } },
+                        modifier = Modifier.fillMaxSize(),
+                        update = { cameraEngine?.startCameraPreview(lifecycleOwner, it) }
+                    )
+                    IconButton(onClick = { interactionState = InteractionState.IDLE }, modifier = Modifier.align(Alignment.TopEnd).padding(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
                     }
-                )
-                
-                IconButton(
-                    onClick = { interactionState = InteractionState.IDLE },
-                    modifier = Modifier.align(Alignment.TopEnd).padding(32.dp)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Exit Live Mode", tint = Color.White)
                 }
             }
         }
     }
 }
-
 @Composable
 fun ChatBubble(message: ChatMessage) {
     val isUser = message.role == ChatRole.USER
@@ -289,6 +269,41 @@ fun ChatBubble(message: ChatMessage) {
 }
 
 @Composable
+fun ChatHistorySidebar(chatHistoryManager: ChatHistoryManager) {
+    val threads = chatHistoryManager.allThreads
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        items(threads) { thread ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = SecondaryContainer.copy(alpha = 0.3f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { chatHistoryManager.selectThread(thread.id) }
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = thread.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = OnSurface,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${thread.messages.size} points discussed",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = OnSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun CentralGlowOrb(state: InteractionState) {
     val infiniteTransition = rememberInfiniteTransition(label = "orb_infinite")
     val scale by infiniteTransition.animateFloat(
@@ -300,7 +315,6 @@ fun CentralGlowOrb(state: InteractionState) {
         ), label = "orb_scale"
     )
 
-    // Increase scale slightly if in voice mode
     val activeScale by animateFloatAsState(
         targetValue = if (state == InteractionState.VOICE) 1.25f else 1f,
         animationSpec = tween(1000, easing = FastOutSlowInEasing), label = "active_scale"
@@ -328,7 +342,11 @@ fun CentralGlowOrb(state: InteractionState) {
 }
 
 @Composable
+<<<<<<< HEAD
+fun TopAppBar(onMenuClick: () -> Unit = {}) {
+=======
 fun TopAppBar(modifier: Modifier = Modifier) {
+>>>>>>> 61197a2021ccce920eda9a56be18d2b9177b6761
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -341,9 +359,11 @@ fun TopAppBar(modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 imageVector = Icons.Default.Menu,
-                contentDescription = "Menu",
+                contentDescription = "Menu Sidebar Trigger",
                 tint = PrimaryColor,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier
+                    .size(28.dp)
+                    .clickable { onMenuClick() }
             )
             Spacer(modifier = Modifier.width(16.dp))
             Text(
@@ -354,8 +374,7 @@ fun TopAppBar(modifier: Modifier = Modifier) {
                 letterSpacing = 1.5.sp
             )
         }
-        
-        // Profile Placeholder
+
         Box(
             modifier = Modifier
                 .size(40.dp)
@@ -375,11 +394,9 @@ fun BottomInteractionZone(
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
 
-    // Smooth return to center
     val animatedOffsetX by animateFloatAsState(targetValue = offsetX, animationSpec = spring(), label = "offset_x")
     val animatedOffsetY by animateFloatAsState(targetValue = offsetY, animationSpec = spring(), label = "offset_y")
 
-    // Pulsing animation for the button core
     val pulseTransition = rememberInfiniteTransition(label = "button_pulse")
     val pulseScale by pulseTransition.animateFloat(
         initialValue = 1f,
@@ -397,8 +414,7 @@ fun BottomInteractionZone(
             .padding(bottom = 48.dp),
         contentAlignment = Alignment.BottomCenter
     ) {
-        
-        // Voice Mode Indicators (Swipe Up)
+
         AnimatedVisibility(
             visible = state == InteractionState.VOICE,
             enter = fadeIn() + scaleIn(),
@@ -412,7 +428,6 @@ fun BottomInteractionZone(
             }
         }
 
-        // Text Mode Input (Tap)
         AnimatedVisibility(
             visible = state == InteractionState.TEXT,
             enter = slideInVertically(initialOffsetY = { 50 }) + fadeIn(),
@@ -421,14 +436,13 @@ fun BottomInteractionZone(
         ) {
             TextInputBar(
                 onClose = { onStateChange(InteractionState.IDLE) },
-                onSubmit = {
-                    onSubmitPrompt(it)
+                onSubmit = { textInput ->
+                    onSubmitPrompt(textInput)
                     onStateChange(InteractionState.IDLE)
                 }
             )
         }
 
-        // Super Circular Button
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -457,8 +471,6 @@ fun BottomInteractionZone(
                             } else if (offsetX < -150f && abs(offsetX) > abs(offsetY)) {
                                 onStateChange(InteractionState.TESTING_HUB)
                             }
-                            
-                            // Snap back to center
                             offsetX = 0f
                             offsetY = 0f
                         },
@@ -472,7 +484,6 @@ fun BottomInteractionZone(
                     )
                 }
         ) {
-            // Inner Core of the Button
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -490,14 +501,13 @@ fun BottomInteractionZone(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TextInputBar(
     onClose: () -> Unit,
     onSubmit: (String) -> Unit
 ) {
     var text by remember { mutableStateOf("") }
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth(0.85f)
@@ -518,24 +528,24 @@ fun TextInputBar(
             modifier = Modifier.weight(1f),
             singleLine = true
         )
-        
+
         AnimatedVisibility(visible = text.isNotBlank()) {
             IconButton(
-                onClick = { 
+                onClick = {
                     onSubmit(text)
                     text = ""
                 }
             ) {
                 Icon(
-                    imageVector = Icons.AutoMirrored.Filled.Send, 
-                    contentDescription = "Send",
+                    imageVector = Icons.AutoMirrored.Filled.Send,
+                    contentDescription = "Send Entry Packet",
                     tint = PrimaryColor
                 )
             }
         }
 
         IconButton(onClick = onClose) {
-            Icon(Icons.Default.Close, contentDescription = "Close", tint = OnSurfaceVariant)
+            Icon(Icons.Default.Close, contentDescription = "Close Bar", tint = OnSurfaceVariant)
         }
     }
 }
@@ -563,9 +573,48 @@ fun VoiceDot(delayMillis: Int) {
 
 @Composable
 fun VideoOverlay(
+    photoParser: PhotoParser?,
+    photoUploadParser: PhotoUploadParser?,
+    cameraEngine: CameraFlowEngine?,
+    voiceCommandEngine: VoiceCommandEngine?,
     onClose: () -> Unit,
     onStartLiveStream: () -> Unit = {},
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val localContext = LocalContext.current
+
+    // 🔥 Native Picker Launcher: Upload Photo
+    val imageUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { selectedUri ->
+            coroutineScope.launch {
+                voiceCommandEngine?.aiResponseText?.value = "Extracting upload context matrix..."
+                val response = photoUploadParser?.parseUploadedPhoto(
+                    imageUri = selectedUri,
+                    userPrompt = "Deconstruct formulas and abstract concepts inside this asset text layout."
+                ) ?: "Offline Photo Upload Parser unavailable."
+
+                // 🔥 FIXED (Errors 1 & 2): Linked to 'saveMessageToCurrentThread'
+                voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("USER", "Uploaded a Photo Asset")
+                voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("AI", response)
+                onClose()
+            }
+        }
+    }
+
+    // 🔥 Native Picker Launcher: Upload Video
+    val videoUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { _ ->
+            // 🔥 FIXED (Errors 3 & 4): Linked to 'saveMessageToCurrentThread'
+            voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("USER", "Uploaded a Local Video Sequence")
+            voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("AI", "Video context ingestion initialized.")
+            onClose()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -579,7 +628,7 @@ fun VideoOverlay(
         ) {
             Icon(
                 imageVector = Icons.Default.Videocam,
-                contentDescription = "Visual Mode",
+                contentDescription = "Visual Integration Hub",
                 tint = PrimaryContainer,
                 modifier = Modifier.size(56.dp)
             )
@@ -611,10 +660,26 @@ fun VideoOverlay(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.Image,
                     title = "Scan Text",
-                    onClick = { /* Implement text extraction */ }
+                    onClick = {
+                        // 🔥 FIXED: Call the existing onStartLiveStream function pointer to lock the camera open
+                        onStartLiveStream()
+
+                        cameraEngine?.takeMentorSnapshot(
+                            onPhotoSaved = { file ->
+                                coroutineScope.launch {
+                                    val result = photoParser?.parseImageAndSummarize(file, "Extract text elements and summarize explicitly.")
+                                        ?: "Parsing engine connection broken."
+                                    voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("USER", "Scanned Text Page")
+                                    voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("AI", result)
+                                    onClose() // 🔥 FIXED: Returns layout back to IDLE home state cleanly
+                                }
+                            },
+                            onError = { println("[ERROR] Lens Capture Failed") }
+                        )
+                    }
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
 
             Row(
@@ -625,18 +690,34 @@ fun VideoOverlay(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.CameraAlt,
                     title = "Scan Image",
-                    onClick = { /* Implement document scanning */ }
+                    onClick = {
+                        // 🔥 FIXED: Call onStartLiveStream to open your active viewport layout container
+                        onStartLiveStream()
+
+                        cameraEngine?.takeMentorSnapshot(
+                            onPhotoSaved = { file ->
+                                coroutineScope.launch {
+                                    val result = photoParser?.parseImageAndSummarize(file, "Deconstruct the visual engineering schematics inside this layout.")
+                                        ?: "Parsing engine connection broken."
+                                    voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("USER", "Captured Hardware Matrix Image")
+                                    voiceCommandEngine?.chatHistoryManager?.saveMessageToCurrentThread("AI", result)
+                                    onClose() // 🔥 FIXED: Returns back home smoothly
+                                }
+                            },
+                            onError = { println("[ERROR] Lens Frame Extraction Aborted") }
+                        )
+                    }
                 )
                 MediaCard(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Default.VideoFile,
                     title = "Upload\nVideo",
-                    onClick = { }
+                    onClick = { videoUploadLauncher.launch("video/*") }
                 )
             }
 
             Spacer(modifier = Modifier.height(48.dp))
-            
+
             Button(
                 onClick = onClose,
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))
@@ -658,9 +739,7 @@ fun MediaCard(
         modifier = modifier
             .height(120.dp)
             .clickable { onClick() },
-        colors = CardDefaults.cardColors(
-            containerColor = Color.White.copy(alpha = 0.1f)
-        ),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.1f)),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(
