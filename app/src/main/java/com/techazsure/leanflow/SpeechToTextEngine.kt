@@ -22,10 +22,6 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
     private var voskModel: Model? = null
     private var isListening = false
 
-    fun stopListening() {
-        isListening = false
-    }
-
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -90,7 +86,13 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
      * Streams microphone hardware vibrations and flags real-time text outputs.
      */
     suspend fun recordAudioStream(onPartialResult: (String) -> Unit, onFinalResult: (String) -> Unit) = withContext(Dispatchers.IO) {
-        val model = voskModel ?: return@withContext println("[WARN] Core model not mounted yet.")
+        val model = voskModel ?: run {
+            println("[WARN] Core model not mounted yet.")
+            withContext(Dispatchers.Main) {
+                onFinalResult("Error: Speech model is still loading. Please try again in a moment.")
+            }
+            return@withContext
+        }
 
         // 1. Explicitly check if the RECORD_AUDIO permission is currently active in the OS context
         if (ContextCompat.checkSelfPermission(
@@ -122,11 +124,15 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
 
             if (audioRecord.state != AudioRecord.STATE_INITIALIZED) {
                 println("[ERROR] Direct microphone hardware link failed to initialize.")
+                withContext(Dispatchers.Main) {
+                    onFinalResult("Error: Microphone hardware initialization failed.")
+                }
                 return@withContext
             }
 
             val recognizer = Recognizer(model, sampleRate.toFloat())
-            recognizer.setWords(true) // Keeps the parsing speed fast
+            recognizer.setWords(true) // 🔥 TUNED: Provides word-by-word timing for better recognition accuracy
+            recognizer.setMaxAlternatives(0)
             val buffer = ShortArray(bufferSize)
 
             audioRecord.startRecording()
@@ -166,6 +172,9 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
         } catch (e: Exception) {
             println("[ERROR] Generic hardware capture failure: ${e.message}")
             isListening = false
+            withContext(Dispatchers.Main) {
+                onFinalResult("Error: Voice capture failed.")
+            }
         }
     }
 }

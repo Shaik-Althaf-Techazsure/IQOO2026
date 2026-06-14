@@ -112,7 +112,7 @@ class VoiceCommandEngine(
         speakOut(response)
     }
 
-    private fun speakOut(text: String) {
+    fun speakOut(text: String) {
         if (isTtsReady && text.isNotEmpty()) {
             // Strips markdown symbols internally so the engine doesn't stutter on syntax characters
             val cleanSpokenText = text.replace("**", "").replace("*", "").replace("#", "")

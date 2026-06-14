@@ -16,7 +16,7 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
     }
 
     private suspend fun initializeEngine() {
-        val modelName = "gemma-2b-quantized.task"
+        val modelName = "gemma-2n-quantized.task"
         val modelFile = File(context.filesDir, modelName)
 
         if (!modelFile.exists() || modelFile.length() < 100 * 1024 * 1024) {
@@ -48,16 +48,9 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
     fun streamResponse(history: List<ChatMessage>, onTokenGenerated: (String, Boolean) -> Unit) {
         scope.launch {
             try {
-                // Build the full context string (Gemma-specific ChatML format)
-                val promptBuilder = StringBuilder()
-                for (message in history) {
-                    val tag = if (message.sender == "USER") "<|user|>" else "<|model|>"
-                    promptBuilder.append("$tag\n${message.text}\n")
-                }
-                promptBuilder.append("<|model|>\n")
-
+                val prompt = buildPrompt(history)
                 // Generate response asynchronously
-                llmInference?.generateResponseAsync(promptBuilder.toString()) { partialResult, done ->
+                llmInference?.generateResponseAsync(prompt) { partialResult, done ->
                     onTokenGenerated(partialResult, done)
                 }
             } catch (e: Exception) {
@@ -66,20 +59,30 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
         }
     }
 
+    /**
+     * BLOCKING INFERENCE: Returns the full response as a single string.
+     */
     suspend fun queryWithContext(history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
         try {
-            val promptBuilder = StringBuilder()
-            for (message in history) {
-                val tag = if (message.sender == "USER") "<|user|>" else if (message.sender == "AI") "<|model|>" else ""
-                if (tag.isNotEmpty()) {
-                    promptBuilder.append("$tag\n${message.text}\n")
-                }
-            }
-            promptBuilder.append("<|model|>\n")
-            llmInference?.generateResponse(promptBuilder.toString()) ?: "Engine not ready"
+            val prompt = buildPrompt(history)
+            llmInference?.generateResponse(prompt) ?: "Engine not ready."
         } catch (e: Exception) {
             "Inference Error: ${e.message}"
         }
+    }
+
+    private fun buildPrompt(history: List<ChatMessage>): String {
+        val promptBuilder = StringBuilder()
+        for (message in history) {
+            val tag = when (message.sender) {
+                "USER" -> "<|user|>"
+                "SYSTEM" -> "<|system|>"
+                else -> "<|model|>"
+            }
+            promptBuilder.append("$tag\n${message.text}\n")
+        }
+        promptBuilder.append("<|model|>\n")
+        return promptBuilder.toString()
     }
 
     private fun copyModelFromAssets(assetName: String, targetFile: File): Boolean {

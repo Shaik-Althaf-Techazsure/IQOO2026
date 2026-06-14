@@ -19,6 +19,9 @@ import androidx.lifecycle.lifecycleScope
 import com.techazsure.leanflow.speech.VoiceCommandEngine
 import com.techazsure.leanflow.ui.LearnflowlyScreen
 import com.techazsure.leanflow.ui.theme.LeanFlowTheme
+import com.techazsure.leanflow.visual.PhotoParser
+import com.techazsure.leanflow.visual.PhotoUploadParser
+import com.techazsure.leanflow.visual.VideoParser
 
 class MainActivity : ComponentActivity() {
 
@@ -26,6 +29,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var brainEngine: BrainEngine
     private lateinit var sttEngine: SpeechToTextEngine
     private lateinit var voiceCommandEngine: VoiceCommandEngine
+    private lateinit var photoParser: PhotoParser
+    private lateinit var photoUploadParser: PhotoUploadParser
+    private lateinit var videoParser: VideoParser
 
     private var isBrainReady by mutableStateOf(false)
     private var isSttReady by mutableStateOf(false)
@@ -63,11 +69,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    if (arePermissionsGranted) {
+                    if (arePermissionsGranted && ::voiceCommandEngine.isInitialized) {
                         // Pass exactly what Akthar's frontend layout signature expects
                         LearnflowlyScreen(
                             cameraEngine = cameraEngine,
-                            voiceCommandEngine = voiceCommandEngine
+                            voiceCommandEngine = voiceCommandEngine,
+                            photoParser = photoParser,
+                            photoUploadParser = photoUploadParser,
+                            videoParser = videoParser
                         )
                     } else {
                         // Graceful loading fallback until permissions are explicitly granted
@@ -112,8 +121,12 @@ class MainActivity : ComponentActivity() {
             println("[MAIN] STT Engine Status: $ready")
         }
 
+        photoParser = PhotoParser(this, brainEngine)
+        photoUploadParser = PhotoUploadParser(this, brainEngine)
+        videoParser = VideoParser(this, brainEngine)
+
         // 🧠 FIXED: Initialized Akthar's history tracking module with zero arguments to match its constructor
-        val chatHistoryManager = ChatHistoryManager()
+        val chatHistoryManager = ChatHistoryManager(this)
 
         // 🔥 FIXED: Parameters cleanly isolated and mapped using named arguments
         voiceCommandEngine = VoiceCommandEngine(

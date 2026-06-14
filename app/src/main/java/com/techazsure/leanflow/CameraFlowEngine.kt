@@ -6,6 +6,7 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.*
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -16,7 +17,14 @@ import java.util.concurrent.Executors
 class CameraFlowEngine(private val context: Context) {
 
     private var imageCapture: ImageCapture? = null
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var currentRecording: Recording? = null
     private val cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    // 🔥 PERMANENT STORAGE HUB
+    private val mediaDir = File(context.filesDir, "LeanFlowMedia").apply { 
+        if (!exists()) mkdirs() 
+    }
 
     /**
      * Binds the hardware camera lens straight to your UI layer and Lifecycle scope safely.
@@ -43,6 +51,12 @@ class CameraFlowEngine(private val context: Context) {
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .build()
 
+                // Setup Video Recorder configuration
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(QualitySelector.from(Quality.LOWEST))
+                    .build()
+                videoCapture = VideoCapture.withOutput(recorder)
+
                 // Default to using the flagship rear-facing lens
                 val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
@@ -50,7 +64,7 @@ class CameraFlowEngine(private val context: Context) {
                 cameraProvider.unbindAll()
 
                 // Mount the lens loops straight into the lifecycle owner
-                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+                cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture, videoCapture)
                 println("[SUCCESS] CameraFlow Engine: Live view matrix bound to current window layer.")
             } catch (exc: Exception) {
                 println("[ERROR] Failed to bind camera sensor frames: ${exc.message}")
@@ -64,8 +78,8 @@ class CameraFlowEngine(private val context: Context) {
     fun takeMentorSnapshot(onPhotoSaved: (File) -> Unit, onError: (Exception) -> Unit) {
         val captureChannel = imageCapture ?: return
 
-        // Setup a local storage file inside the app cache memory space
-        val photoFile = File(context.cacheDir, "mentor_input_${System.currentTimeMillis()}.jpg")
+        // Setup a local storage file inside the app permanent storage
+        val photoFile = File(mediaDir, "scan_${System.currentTimeMillis()}.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
         captureChannel.takePicture(
@@ -83,6 +97,43 @@ class CameraFlowEngine(private val context: Context) {
                 }
             }
         )
+    }
+
+    /**
+     * Starts recording a video clip to the cache directory.
+     */
+    fun startVideoRecording(onVideoSaved: (File) -> Unit, onError: (Exception) -> Unit) {
+        val recordingChannel = videoCapture ?: run {
+            onError(Exception("Video capture not initialized"))
+            return
+        }
+
+        val videoFile = File(mediaDir, "recording_${System.currentTimeMillis()}.mp4")
+        val outputOptions = FileOutputOptions.Builder(videoFile).build()
+
+        currentRecording = recordingChannel.output
+            .prepareRecording(context, outputOptions)
+            .start(ContextCompat.getMainExecutor(context)) { event ->
+                if (event is VideoRecordEvent.Finalize) {
+                    if (!event.hasError()) {
+                        println("[SUCCESS] Video stored in cache path: ${videoFile.absolutePath}")
+                        onVideoSaved(videoFile)
+                    } else {
+                        println("[ERROR] Video recording failed: ${event.error}")
+                        onError(Exception("Video recording failed with code: ${event.error}"))
+                    }
+                }
+            }
+        println("[RECORDING] Video stream capture started.")
+    }
+
+    /**
+     * Stops the active video recording.
+     */
+    fun stopVideoRecording() {
+        currentRecording?.stop()
+        currentRecording = null
+        println("[RECORDING] Stop command issued.")
     }
 
     fun shutdownExecutor() {

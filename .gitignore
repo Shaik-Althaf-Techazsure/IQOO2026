@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# MediaPipe Large Language Models
+*.task

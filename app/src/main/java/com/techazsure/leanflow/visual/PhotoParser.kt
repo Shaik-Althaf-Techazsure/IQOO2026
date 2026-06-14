@@ -39,7 +39,9 @@ class PhotoParser(
                 $extractedText
                 ---
                 User Specific Request: $userCustomQuery
-                Please cross-reference the text above and generate a clear structured response.
+                
+                Please generate a clear response in natural paragraphs. 
+                Do NOT use bullet points or markdown bolding (**).
             """.trimIndent()
 
             // Pass the text to your local model
