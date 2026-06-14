@@ -22,6 +22,10 @@ class SpeechToTextEngine(private val context: Context, private val onModelLoaded
     private var voskModel: Model? = null
     private var isListening = false
 
+    fun stopListening() {
+        isListening = false
+    }
+
     init {
         CoroutineScope(Dispatchers.IO).launch {
             try {

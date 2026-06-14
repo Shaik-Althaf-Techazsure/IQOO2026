@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.techazsure.leanflow.ContextExtractor
 import com.techazsure.leanflow.LearnFlowEngine
 import com.techazsure.leanflow.ChatMessage // IMPORT THE SHARED MODEL
+import com.techazsure.leanflow.ChatRole
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,8 +74,8 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
         viewModelScope.launch {
             // 1. Give the user visual feedback that the file was attached
             val attachmentMessage = ChatMessage(
-                role = ChatRole.USER, 
-                content = "[Attached $fileType]"
+                sender = ChatRole.USER, 
+                text = "[Attached $fileType]"
             )
             _chatHistory.value = _chatHistory.value + attachmentMessage
 
@@ -85,8 +86,8 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
                 
                 // 3. Silently feed this to the Brain Engine as system context
                 val contextInjection = ChatMessage(
-                    role = ChatRole.SYSTEM,
-                    content = "Context Update from user's attached file: $extractedData"
+                    sender = ChatRole.SYSTEM,
+                    text = "Context Update from user's attached file: $extractedData"
                 )
                 _chatHistory.value = _chatHistory.value + contextInjection
                 
@@ -100,8 +101,8 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
     fun ingestContextFromBitmap(bitmap: Bitmap, isOcrTarget: Boolean = false) {
         viewModelScope.launch {
             val attachmentMessage = ChatMessage(
-                role = ChatRole.USER, 
-                content = if (isOcrTarget) "[Scanning Text from Image...]" else "[Captured Photo]"
+                sender = ChatRole.USER, 
+                text = if (isOcrTarget) "[Scanning Text from Image...]" else "[Captured Photo]"
             )
             _chatHistory.value = _chatHistory.value + attachmentMessage
 
@@ -109,8 +110,8 @@ class LearnFlowViewModel(private val aiEngine: LearnFlowEngine) : ViewModel() {
                 // [AI DEVELOPER NOTE] ContextExtractor must be implemented to handle ML Kit OCR
                 ContextExtractor.extractTextWithMLKit(bitmap) { extractedText ->
                     val ocrResult = ChatMessage(
-                        role = ChatRole.SYSTEM,
-                        content = "Extracted Text from Image: $extractedText"
+                        sender = ChatRole.SYSTEM,
+                        text = "Extracted Text from Image: $extractedText"
                     )
                     _chatHistory.value = _chatHistory.value + ocrResult
                 }

@@ -66,6 +66,22 @@ class LearnFlowEngine(private val context: Context, private val onBrainReady: (B
         }
     }
 
+    suspend fun queryWithContext(history: List<ChatMessage>): String = withContext(Dispatchers.IO) {
+        try {
+            val promptBuilder = StringBuilder()
+            for (message in history) {
+                val tag = if (message.sender == "USER") "<|user|>" else if (message.sender == "AI") "<|model|>" else ""
+                if (tag.isNotEmpty()) {
+                    promptBuilder.append("$tag\n${message.text}\n")
+                }
+            }
+            promptBuilder.append("<|model|>\n")
+            llmInference?.generateResponse(promptBuilder.toString()) ?: "Engine not ready"
+        } catch (e: Exception) {
+            "Inference Error: ${e.message}"
+        }
+    }
+
     private fun copyModelFromAssets(assetName: String, targetFile: File): Boolean {
         return try {
             context.assets.open(assetName).use { input ->

@@ -53,13 +53,11 @@ dependencies {
     implementation(libs.androidx.camera.camera2)
     implementation(libs.androidx.camera.lifecycle)
     implementation(libs.androidx.camera.view)
-<<<<<<< HEAD
-=======
     implementation(libs.play.services.document.scanner)
     implementation(libs.mlkit.text.recognition)
->>>>>>> 61197a2021ccce920eda9a56be18d2b9177b6761
     implementation(libs.vosk.android)
-    implementation("com.google.mediapipe:tasks-genai:0.10.27")
+    implementation(libs.google.mediapipe.tasks.genai)
+    implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -68,6 +66,4 @@ dependencies {
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-    implementation("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 }

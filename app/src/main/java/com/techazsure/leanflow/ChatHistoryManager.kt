@@ -5,15 +5,6 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 
 /**
- * Data packet representing an individual chat message stream.
- */
-data class ChatMessage(
-    val sender: String, // Value must be "USER" or "AI"
-    val text: String,
-    val timestamp: Long = System.currentTimeMillis()
-)
-
-/**
  * Structural container tracking grouped message arrays under a localized identification index.
  */
 data class ChatThread(
