@@ -454,6 +454,8 @@ fun BottomInteractionZone(
                                 onStateChange(InteractionState.VOICE)
                             } else if (offsetX > 150f && abs(offsetX) > abs(offsetY)) {
                                 onStateChange(InteractionState.VIDEO)
+                            } else if (offsetX < -150f && abs(offsetX) > abs(offsetY)) {
+                                onStateChange(InteractionState.TESTING_HUB)
                             }
                             
                             // Snap back to center
