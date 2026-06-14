@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.filled.TextSnippet
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
@@ -70,6 +71,27 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
+import android.app.Activity
+import android.graphics.Bitmap
+import android.net.Uri
+import androidx.activity.compose.ManagedActivityResultLauncher
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.DocumentScanner
+import androidx.compose.material.icons.filled.TextSnippet
+import androidx.compose.material.icons.filled.VideoCall
+import androidx.compose.ui.platform.LocalContext
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanner
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
+
 // --- Theme Colors from DESIGN.md ---
 val SurfaceColor = Color(0xFFF8F9FF)
 val PrimaryColor = Color(0xFF4648D4)
@@ -79,6 +101,12 @@ val OnSurface = Color(0xFF0B1C30)
 val OnSurfaceVariant = Color(0xFF464554)
 
 enum class InteractionState { IDLE, TEXT, VOICE, VIDEO, LIVE_CHAT, TESTING_HUB }
+
+data class MediaAction(
+    val title: String,
+    val icon: ImageVector,
+    val onClick: () -> Unit
+)
 
 @Preview(showBackground = true)
 @Composable
@@ -94,7 +122,52 @@ fun LearnflowlyScreen(
     sttEngine: SpeechToTextEngine? = null,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     var interactionState by rememberSaveable { mutableStateOf(InteractionState.IDLE) }
+
+    // --- Launchers for Media Ingestion ---
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        uri?.let { viewModel?.ingestContextFromUri(context, it, "Media") }
+    }
+
+    val textUploadLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let { viewModel?.ingestContextFromUri(context, it, "Text Document") }
+    }
+
+    val takePhotoLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let { viewModel?.ingestContextFromBitmap(it, isOcrTarget = false) }
+    }
+
+    val scanTextOcrLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        bitmap?.let { viewModel?.ingestContextFromBitmap(it, isOcrTarget = true) }
+    }
+
+    val scannerOptions = GmsDocumentScannerOptions.Builder()
+        .setGalleryImportAllowed(true)
+        .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_PDF)
+        .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+        .build()
+    val scanner = GmsDocumentScanning.getClient(scannerOptions)
+
+    val scanLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val scanResult = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+            val uri = scanResult?.pdf?.uri
+            if (uri != null) {
+                viewModel?.ingestContextFromUri(context, uri, "Scanned PDF")
+            }
+        }
+    }
     
     // Collect the memory state
     val chatHistory by (viewModel?.chatHistory?.collectAsState() ?: remember { mutableStateOf(emptyList<ChatMessage>()) })
@@ -227,16 +300,24 @@ fun LearnflowlyScreen(
         // 6. Overlays (Drawn on top)
         if (interactionState == InteractionState.VIDEO) {
             VideoOverlay(
+                viewModel = viewModel,
                 onClose = { interactionState = InteractionState.IDLE },
                 onStartLiveStream = {
                     interactionState = InteractionState.LIVE_CHAT
-                }
+                },
+                mediaPickerLauncher = mediaPickerLauncher,
+                textUploadLauncher = textUploadLauncher,
+                takePhotoLauncher = takePhotoLauncher,
+                scanner = scanner,
+                scanLauncher = scanLauncher,
+                scanTextOcrLauncher = scanTextOcrLauncher
             )
         }
 
         if (interactionState == InteractionState.TESTING_HUB) {
             TestingZoneOverlay(
-                onClose = { interactionState = InteractionState.IDLE }
+                onClose = { interactionState = InteractionState.IDLE },
+                onSubmitPrompt = { prompt -> viewModel?.submitPrompt(prompt) }
             )
         }
         
@@ -587,9 +668,45 @@ fun VoiceDot(delayMillis: Int) {
 
 @Composable
 fun VideoOverlay(
+    viewModel: LearnFlowViewModel?,
     onClose: () -> Unit,
     onStartLiveStream: () -> Unit = {},
+    mediaPickerLauncher: ManagedActivityResultLauncher<PickVisualMediaRequest, Uri?>,
+    textUploadLauncher: ManagedActivityResultLauncher<Array<String>, Uri?>,
+    takePhotoLauncher: ManagedActivityResultLauncher<Void?, Bitmap?>,
+    scanner: GmsDocumentScanner,
+    scanLauncher: ManagedActivityResultLauncher<IntentSenderRequest, androidx.activity.result.ActivityResult>,
+    scanTextOcrLauncher: ManagedActivityResultLauncher<Void?, Bitmap?>
 ) {
+    val context = LocalContext.current
+    
+    val actions = listOf(
+        MediaAction("Upload\nPhoto", Icons.Default.Image) {
+            mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+        },
+        MediaAction("Upload\nVideo", Icons.Default.VideoFile) {
+            mediaPickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+        },
+        MediaAction("Upload\nText", Icons.Default.Description) {
+            textUploadLauncher.launch(arrayOf("text/plain"))
+        },
+        MediaAction("Capture\nPhoto", Icons.Default.CameraAlt) {
+            takePhotoLauncher.launch(null)
+        },
+        MediaAction("Scan\nImage (PDF)", Icons.Default.DocumentScanner) {
+            scanner.getStartScanIntent((context as Activity))
+                .addOnSuccessListener { 
+                    scanLauncher.launch(IntentSenderRequest.Builder(it).build()) 
+                }
+        },
+        MediaAction("Scan\nText (OCR)", Icons.AutoMirrored.Filled.TextSnippet) {
+            scanTextOcrLauncher.launch(null)
+        },
+        MediaAction("Live Video\nChat", Icons.Default.VideoCall) {
+            onStartLiveStream()
+        }
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -621,42 +738,19 @@ fun VideoOverlay(
                 modifier = Modifier.padding(top = 8.dp, bottom = 48.dp)
             )
 
-            Row(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Videocam,
-                    title = "Live Stream",
-                    onClick = { onStartLiveStream() }
-                )
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.Image,
-                    title = "Scan Text",
-                    onClick = { /* Implement text extraction */ }
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.CameraAlt,
-                    title = "Scan Image",
-                    onClick = { /* Implement document scanning */ }
-                )
-                MediaCard(
-                    modifier = Modifier.weight(1f),
-                    icon = Icons.Default.VideoFile,
-                    title = "Upload\nVideo",
-                    onClick = { }
-                )
+                items(actions) { action ->
+                    MediaCard(
+                        icon = action.icon,
+                        title = action.title,
+                        onClick = action.onClick
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(48.dp))
@@ -776,7 +870,8 @@ fun ParticleSwarm(modifier: Modifier = Modifier, particleColor: Color) {
 
 @Composable
 fun TestingZoneOverlay(
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    onSubmitPrompt: (String) -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -820,21 +915,30 @@ fun TestingZoneOverlay(
                     title = "Quiz from the Chat",
                     description = "Take a dynamic quiz compiled directly from your recent conversation.",
                     accentColor = Color(0xFF4F46E5),
-                    onClick = { /* Quiz action */ }
+                    onClick = { 
+                        onSubmitPrompt("Please generate a short quiz based on the concepts we've discussed so far.")
+                        onClose()
+                    }
                 )
                 TestingConceptCard(
                     icon = Icons.Rounded.SportsEsports,
                     title = "Educational Games",
                     description = "Play matching games and puzzles based on learned terms.",
                     accentColor = Color(0xFF10B981),
-                    onClick = { /* Games action */ }
+                    onClick = { 
+                        onSubmitPrompt("Let's play an educational text-based game to test my knowledge of the recent topics.")
+                        onClose()
+                    }
                 )
                 TestingConceptCard(
                     icon = Icons.Rounded.Terminal,
                     title = "Code Playground",
                     description = "Solve code exercises and compile snippets on chat topics.",
                     accentColor = Color(0xFFF59E0B),
-                    onClick = { /* Code action */ }
+                    onClick = { 
+                        onSubmitPrompt("Give me a practical coding exercise to apply the concepts we just talked about.")
+                        onClose()
+                    }
                 )
             }
 

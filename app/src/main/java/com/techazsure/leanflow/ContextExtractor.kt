@@ -6,36 +6,45 @@ import android.net.Uri
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import java.io.BufferedReader
+import java.io.InputStreamReader
 
 object ContextExtractor {
 
-    /**
-     * Extracts raw text from a URI. 
-     * In a real app, you would handle PDFs, Docx, or simple text files.
-     */
+    // Reads raw text from standard .txt and basic document files
     fun extractTextFromUri(context: Context, uri: Uri): String {
-        return try {
+        val stringBuilder = java.lang.StringBuilder()
+        try {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                inputStream.bufferedReader().use { it.readText() }
-            } ?: "Empty file content"
+                BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                    var line: String? = reader.readLine()
+                    while (line != null) {
+                        stringBuilder.append(line).append("\n")
+                        line = reader.readLine()
+                    }
+                }
+            }
         } catch (e: Exception) {
-            "Error extracting text: ${e.message}"
+            return "Error reading file content."
         }
+        return stringBuilder.toString()
     }
 
-    /**
-     * Uses ML Kit Text Recognition to extract text from a Bitmap.
-     */
+    // Runs offline Optical Character Recognition (OCR) on an image
     fun extractTextWithMLKit(bitmap: Bitmap, onResult: (String) -> Unit) {
         val image = InputImage.fromBitmap(bitmap, 0)
         val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
-                onResult(visionText.text.ifBlank { "No text detected in image." })
+                if (visionText.text.isBlank()) {
+                    onResult("No readable text found in the image.")
+                } else {
+                    onResult(visionText.text)
+                }
             }
             .addOnFailureListener { e ->
-                onResult("OCR Failure: ${e.message}")
+                onResult("OCR Extraction failed: ${e.message}")
             }
     }
 }
