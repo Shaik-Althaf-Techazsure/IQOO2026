@@ -22,33 +22,40 @@ class CameraFlowEngine(private val context: Context) {
      * Binds the hardware camera lens straight to your UI layer and Lifecycle scope safely.
      */
     fun startCameraPreview(lifecycleOwner: LifecycleOwner, previewView: PreviewView) {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
+        // 🔥 Use the view's specific context to trace overlay window permissions safely
+        val runtimeContext = previewView.context
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(runtimeContext)
 
         cameraProviderFuture.addListener({
-            val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
-
-            // Define the visual preview frame container mapping
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-
-            // Define the high-res snapshot capture configuration channel
-            imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build()
-
-            // Default to using the flagship rear-facing lens
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
             try {
+                val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
+
+                // Force COMPATIBLE mode so the overlay window renders perfectly on the phone screen
+                previewView.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+
+                // Define the visual preview frame container mapping
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+
+                // Define the high-res snapshot capture configuration channel
+                imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .build()
+
+                // Default to using the flagship rear-facing lens
+                val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
+
                 // Clear any existing active camera bindings before mounting
                 cameraProvider.unbindAll()
+
                 // Mount the lens loops straight into the lifecycle owner
                 cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture)
+                println("[SUCCESS] CameraFlow Engine: Live view matrix bound to current window layer.")
             } catch (exc: Exception) {
                 println("[ERROR] Failed to bind camera sensor frames: ${exc.message}")
             }
-        }, ContextCompat.getMainExecutor(context))
+        }, ContextCompat.getMainExecutor(runtimeContext))
     }
 
     /**
@@ -63,7 +70,7 @@ class CameraFlowEngine(private val context: Context) {
 
         captureChannel.takePicture(
             outputOptions,
-            ContextCompat.getMainExecutor(context),
+            cameraExecutor, // 🔥 Executed safely on your dedicated background thread instead of the main main UI runner
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     println("[SUCCESS] Photo stored in cache path: ${photoFile.absolutePath}")

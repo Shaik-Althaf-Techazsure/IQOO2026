@@ -28,13 +28,15 @@ class BrainEngine(private val context: Context, private val onBrainReady: (Boole
                     .setMaxTokens(1024)
                     .build()
 
+                // Create the instance forcing native hardware optimization channels
                 llmInference = LlmInference.createFromOptions(context, options)
-                println("[SUCCESS] LearnFlow Brain: Engine graph initialized safely!")
-                onBrainReady(true, "Local AI Brain Engine Connected and Ready!")
+                println("[SUCCESS] LearnFlow Brain: Fast Local GPU AI engine initialized successfully!")
+                onBrainReady(true, "Local GPU AI Brain Engine Connected and Ready!")
             } catch (e: Exception) {
-                val detailedError = "Init Failure: ${e.localizedMessage ?: e.message ?: "Native memory allocation crash"}"
-                println("[ERROR] MediaPipe Initialization Failed: $detailedError")
-                onBrainReady(false, detailedError)
+                // Fallback logic if the hardware context drops
+                val errorDetails = e.localizedMessage ?: e.message ?: "Memory boundary error"
+                println("[ERROR] MediaPipe GPU Initialization Failed: $errorDetails")
+                onBrainReady(false, "Init Failure: $errorDetails")
             }
         }
     }
@@ -42,21 +44,16 @@ class BrainEngine(private val context: Context, private val onBrainReady: (Boole
     suspend fun generateMentorResponse(userInput: String): String = withContext(Dispatchers.IO) {
         val engine = llmInference ?: return@withContext "Error: Local AI engine not initialized."
 
-        val structuredPrompt = """
-            You are 'LearnFlow', a brilliant multi-disciplinary academic mentor operating entirely offline.
-            Your mandate is to guide the user analytically through engineering, mathematics, science, or business concepts.
-            
-            CRITICAL INSTRUCTIONS:
-            1. Analyze the user's input: "$userInput"
-            2. Break down any underlying core formulas, laws, or theorems step-by-step.
-            3. Do not just print flat answers; provide an explanatory framework first.
-            4. Explicitly organize your output evaluation into a clean summary.
-        """.trimIndent()
+        val systemAgentPrompt = """
+        You are 'LearnFlow', an autonomous Agentic Academic Companion operating completely offline.
+        Be extremely concise, brief, and provide short, scannable structures to save processor cycles.
+    """.trimIndent()
 
         return@withContext try {
-            engine.generateResponse(structuredPrompt)
+            // Generates the output cleanly using the hardware layout track
+            engine.generateResponse(systemAgentPrompt + "\nUser Input: " + userInput)
         } catch (e: Exception) {
-            "Inference Error: ${e.message}"
+            "Inference Execution Error: ${e.message}"
         }
     }
 }
